@@ -1,0 +1,22 @@
+package com.kakaobank.coinbox.common.response;
+
+import com.kakaobank.coinbox.common.exception.ErrorCode;
+
+import java.time.LocalDateTime;
+
+public record ErrorResponse(
+        int status,
+        String code,
+        String message,
+        LocalDateTime timestamp
+) {
+
+    public static ErrorResponse from(ErrorCode errorCode) {
+        return new ErrorResponse(
+                errorCode.getHttpStatus().value(),
+                errorCode.getCode(),
+                errorCode.getMessage(),
+                LocalDateTime.now()
+        );
+    }
+}
