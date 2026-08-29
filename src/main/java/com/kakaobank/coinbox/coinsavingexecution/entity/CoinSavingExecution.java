@@ -14,6 +14,9 @@ import lombok.NoArgsConstructor;
 
 import java.time.LocalDate;
 
+/**
+ * 저금통별 동전모으기 일일 처리 결과와 연결 금융거래를 기록한다.
+ */
 @Getter
 @Entity
 @Table(
@@ -56,6 +59,9 @@ public class CoinSavingExecution extends BaseEntity {
     @Column(updatable = false)
     private CoinSavingReasonCode reasonCode;
 
+    /**
+     * 실제 이체가 완료된 동전모으기 성공 이력을 생성한다.
+     */
     public static CoinSavingExecution success(
             Long executionId,
             Long coinBoxId,
@@ -80,6 +86,9 @@ public class CoinSavingExecution extends BaseEntity {
         return execution;
     }
 
+    /**
+     * 업무 조건 때문에 자금 이동 없이 종료된 실행 이력을 생성한다.
+     */
     public static CoinSavingExecution skipped(
             Long executionId,
             Long coinBoxId,
@@ -99,6 +108,9 @@ public class CoinSavingExecution extends BaseEntity {
         return execution;
     }
 
+    /**
+     * 시스템 오류로 완료하지 못한 실행 이력을 생성한다.
+     */
     public static CoinSavingExecution failed(
             Long executionId,
             Long coinBoxId,

@@ -43,6 +43,9 @@ public class ProductVersion extends BaseEntity {
     @Column(nullable = false)
     private LocalDate effectiveTo;
 
+    /**
+     * 상품 안에서 적용 기간이 유효한 정책 버전을 생성한다.
+     */
     public static ProductVersion create(
             Long productVersionId,
             Long productId,

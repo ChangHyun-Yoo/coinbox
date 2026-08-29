@@ -20,7 +20,7 @@ import java.time.LocalDate;
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class Account extends BaseEntity {
 
-    private static final int ACCOUNT_NUMBER_LENGTH = 14;
+    private static final int ACCOUNT_NUMBER_LENGTH = 13;
 
     @Id
     @Column(nullable = false, updatable = false)
@@ -64,8 +64,17 @@ public class Account extends BaseEntity {
         if (accountNumber == null || accountNumber.isBlank()) {
             throw new IllegalArgumentException("accountNumber must not be blank");
         }
-        if (accountNumber.length() > ACCOUNT_NUMBER_LENGTH) {
-            throw new IllegalArgumentException("accountNumber must not exceed " + ACCOUNT_NUMBER_LENGTH + " characters");
+        if (!accountNumber.chars().allMatch(character -> character >= '0' && character <= '9')) {
+            throw new IllegalArgumentException("accountNumber must contain digits only");
+        }
+        if (accountNumber.length() != ACCOUNT_NUMBER_LENGTH) {
+            throw new IllegalArgumentException("accountNumber must be exactly " + ACCOUNT_NUMBER_LENGTH + " characters");
+        }
+        if (productType == null) {
+            throw new IllegalArgumentException("productType must not be null");
+        }
+        if (accountOpenDate == null) {
+            throw new IllegalArgumentException("accountOpenDate must not be null");
         }
         if (balance == null || balance < 0L) {
             throw new IllegalArgumentException("balance must not be negative");
@@ -113,12 +122,18 @@ public class Account extends BaseEntity {
         accountStatus = AccountStatus.CLOSED;
     }
 
+    /**
+     * 이체 금액이 양수인지 공통 검증한다.
+     */
     private void validateTransferAmount(Long amount) {
         if (amount == null || amount <= 0L) {
             throw new IllegalArgumentException("amount must be positive");
         }
     }
 
+    /**
+     * 거래 제한 또는 해지 계좌의 잔액 변경을 차단한다.
+     */
     private void validateActive() {
         if (accountStatus != AccountStatus.ACTIVE) {
             throw new IllegalStateException("Account must be active");

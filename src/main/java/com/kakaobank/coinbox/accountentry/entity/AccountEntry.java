@@ -116,6 +116,9 @@ public class AccountEntry extends BaseEntity {
         return accountEntry;
     }
 
+    /**
+     * 입출금 원장에 공통으로 필요한 금액, 거래 시각과 적요를 검증한다.
+     */
     private static void validateCommonFields(
             Long amount,
             LocalDateTime transactionDatetime,

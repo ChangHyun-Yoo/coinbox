@@ -28,6 +28,9 @@ public class CoinBoxPolicy extends BaseEntity {
     @Column(nullable = false, updatable = false)
     private Long maxAmount;
 
+    /**
+     * 양수인 최대 한도를 특정 상품 버전에 연결한 정책을 생성한다.
+     */
     public static CoinBoxPolicy create(Long coinBoxPolicyId, Long productVersionId, Long maxAmount) {
         if (maxAmount == null || maxAmount <= 0L) {
             throw new IllegalArgumentException("maxAmount must be positive");

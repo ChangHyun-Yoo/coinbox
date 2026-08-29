@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase;
+import org.springframework.context.annotation.Import;
 
 import java.time.LocalDateTime;
 
@@ -17,8 +18,9 @@ import static org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTest
 
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = NONE)
+@Import(MySqlTestContainer.class)
 @DisplayName("계좌 원장 Repository")
-class AccountEntryRepositoryTest extends MySqlTestContainer {
+class AccountEntryRepositoryTest {
 
     @Autowired
     private AccountEntryRepository accountEntryRepository;

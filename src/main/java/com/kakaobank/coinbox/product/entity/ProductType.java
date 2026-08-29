@@ -1,11 +1,13 @@
 package com.kakaobank.coinbox.product.entity;
 
 import lombok.Getter;
+import lombok.RequiredArgsConstructor;
 
 /**
  * 계좌의 현재 운영 유형과 상품군을 식별하는 변경되지 않는 업무 값이다.
  */
 @Getter
+@RequiredArgsConstructor
 public enum ProductType {
     DEMAND_DEPOSIT("입출금통장"),
     COINBOX("저금통"),
@@ -14,8 +16,4 @@ public enum ProductType {
     FIXED_DEPOSIT("정기예금");
 
     private final String description;
-
-    ProductType(String description) {
-        this.description = description;
-    }
 }

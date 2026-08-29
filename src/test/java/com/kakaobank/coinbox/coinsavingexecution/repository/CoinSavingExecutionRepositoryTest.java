@@ -9,6 +9,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.context.annotation.Import;
 
 import java.time.LocalDate;
 
@@ -18,8 +19,9 @@ import static org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTest
 
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = NONE)
+@Import(MySqlTestContainer.class)
 @DisplayName("동전모으기 실행 Repository")
-class CoinSavingExecutionRepositoryTest extends MySqlTestContainer {
+class CoinSavingExecutionRepositoryTest {
 
     @Autowired
     private CoinSavingExecutionRepository coinSavingExecutionRepository;

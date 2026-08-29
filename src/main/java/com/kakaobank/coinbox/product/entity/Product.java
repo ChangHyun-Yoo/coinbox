@@ -31,6 +31,9 @@ public class Product extends BaseEntity {
     @Column(nullable = false, length = 100)
     private String productName;
 
+    /**
+     * 고유한 상품 유형과 사용자 표시명을 가진 상품군을 생성한다.
+     */
     public static Product create(Long productId, ProductType productType, String productName) {
         if (productType == null) {
             throw new IllegalArgumentException("productType must not be null");

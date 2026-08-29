@@ -50,6 +50,12 @@ public class AccountContract extends BaseEntity {
             Long productVersionId,
             LocalDate contractStartDate
     ) {
+        if (productVersionId == null) {
+            throw new IllegalArgumentException("productVersionId must not be null");
+        }
+        if (contractStartDate == null || !contractStartDate.isBefore(ACTIVE_CONTRACT_END_DATE)) {
+            throw new IllegalArgumentException("contractStartDate must be before active contract end date");
+        }
         AccountContract accountContract = new AccountContract();
         accountContract.accountContractId = accountContractId;
         accountContract.accountId = accountId;
@@ -67,8 +73,8 @@ public class AccountContract extends BaseEntity {
         if (contractStatus != ContractStatus.ACTIVE) {
             throw new IllegalStateException("Only active contract can be terminated");
         }
-        if (terminationDate == null || !contractStartDate.isBefore(terminationDate)) {
-            throw new IllegalArgumentException("terminationDate must be after contractStartDate");
+        if (terminationDate == null || terminationDate.isBefore(contractStartDate)) {
+            throw new IllegalArgumentException("terminationDate must not be before contractStartDate");
         }
         contractStatus = ContractStatus.TERMINATED;
         contractEndDate = terminationDate;

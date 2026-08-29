@@ -12,6 +12,9 @@ import lombok.NoArgsConstructor;
 
 import java.time.LocalDate;
 
+/**
+ * 계좌별 특정 영업일의 최종 잔액 스냅샷을 보관한다.
+ */
 @Getter
 @Entity
 @Table(
@@ -37,6 +40,9 @@ public class AccountDailyBalance extends BaseEntity {
     @Column(nullable = false, updatable = false)
     private Long closingBalance;
 
+    /**
+     * 음수가 아닌 일별 최종 잔액 스냅샷을 생성한다.
+     */
     public static AccountDailyBalance create(
             Long accountDailyBalanceId,
             Long accountId,

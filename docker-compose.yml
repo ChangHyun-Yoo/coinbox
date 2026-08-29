@@ -1,7 +1,6 @@
 services:
   mysql:
     image: mysql:8.3.0
-    container_name: coinbox-mysql
     environment:
       MYSQL_DATABASE: coinbox
       MYSQL_USER: coinbox
@@ -11,6 +10,17 @@ services:
       - "3306:3306"
     volumes:
       - mysql-data:/var/lib/mysql
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          mysql --protocol=TCP -h 127.0.0.1
+          -ucoinbox -pcoinbox
+          -D coinbox -e 'SELECT 1' >/dev/null 2>&1
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
 
 volumes:
   mysql-data:

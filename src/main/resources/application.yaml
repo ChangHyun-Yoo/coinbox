@@ -2,11 +2,17 @@ spring:
   application:
     name: coinbox
   datasource:
-    url: jdbc:mysql://localhost:3306/coinbox?rewriteBatchedStatements=true&profileSQL=true&logger=Slf4JLogger&maxQuerySizeToLog=999999
+    url: jdbc:mysql://localhost:3306/coinbox?rewriteBatchedStatements=true&useAffectedRows=true
     username: coinbox
     password: coinbox
     driver-class-name: com.mysql.cj.jdbc.Driver
+  batch:
+    job:
+      enabled: false
+    jdbc:
+      initialize-schema: always
   jpa:
+    defer-datasource-initialization: true
     hibernate:
       ddl-auto: create
     open-in-view: false
@@ -14,7 +20,20 @@ spring:
       hibernate:
         jdbc:
           batch_size: 100
+  sql:
+    init:
+      mode: always
 
 coinbox:
   snowflake:
-    node-id: ${COINBOX_SNOWFLAKE_NODE_ID:0}
+    node-id: 0
+
+springdoc:
+  paths-to-match: /api/v1/**
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    operations-sorter: method
+    tags-sorter: alpha
+    document-title: CoinBox API

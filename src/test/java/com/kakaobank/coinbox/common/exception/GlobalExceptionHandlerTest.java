@@ -16,7 +16,7 @@ class GlobalExceptionHandlerTest {
     @DisplayName("비즈니스 예외를 ErrorCode에 정의된 응답으로 변환한다")
     void handlesBusinessException() {
         // given: 가입 가능한 입출금 계좌가 없는 비즈니스 예외를 준비한다.
-        ErrorCode errorCode = ErrorCode.ELIGIBLE_DEMAND_DEPOSIT_ACCOUNT_NOT_FOUND;
+        ErrorCode errorCode = ErrorCode.ELIGIBLE_ACCOUNT_NOT_FOUND;
         BusinessException exception = new BusinessException(errorCode);
 
         // when: 전역 예외 처리기로 비즈니스 예외를 처리한다.

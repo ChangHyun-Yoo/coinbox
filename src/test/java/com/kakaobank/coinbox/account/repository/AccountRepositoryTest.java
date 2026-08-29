@@ -10,8 +10,10 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.context.annotation.Import;
 
 import java.time.LocalDate;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -19,8 +21,9 @@ import static org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTest
 
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = NONE)
+@Import(MySqlTestContainer.class)
 @DisplayName("계좌 Repository")
-class AccountRepositoryTest extends MySqlTestContainer {
+class AccountRepositoryTest {
 
     @Autowired
     private AccountRepository accountRepository;
@@ -68,5 +71,43 @@ class AccountRepositoryTest extends MySqlTestContainer {
         // when & then: DB의 account_number UK가 중복 저장을 거부한다.
         assertThatThrownBy(() -> accountRepository.saveAndFlush(second))
                 .isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    @Test
+    @DisplayName("계좌번호가 이미 사용 중인지 확인한다")
+    void checksWhetherAccountNumberAlreadyExists() {
+        // given: 13자리 입출금계좌 번호를 저장한다.
+        Account account = Account.create(
+                13L, 1L, ProductType.DEMAND_DEPOSIT, "3333000000002", null, 0L,
+                LocalDate.of(2026, 8, 28)
+        );
+        accountRepository.saveAndFlush(account);
+
+        // when & then: 저장된 번호만 사용 중인 것으로 판단한다.
+        assertThat(accountRepository.countByAccountNumber("3333000000002")).isOne();
+        assertThat(accountRepository.countByAccountNumber("3333000000003")).isZero();
+    }
+
+    @Test
+    @DisplayName("이체 계좌를 ID 오름차순으로 비관적 잠금 조회한다")
+    void locksTransferAccountsInAscendingIdOrder() {
+        // given: ID 순서와 반대로 저장한 두 정상 계좌를 준비한다.
+        Account higherIdAccount = Account.create(
+                22L, 1L, ProductType.DEMAND_DEPOSIT, "3333000000022", null, 10_000L,
+                LocalDate.of(2026, 8, 28)
+        );
+        Account lowerIdAccount = Account.create(
+                21L, 1L, ProductType.DEMAND_DEPOSIT, "3333000000021", null, 20_000L,
+                LocalDate.of(2026, 8, 28)
+        );
+        accountRepository.saveAllAndFlush(List.of(higherIdAccount, lowerIdAccount));
+
+        // when: 전달 순서와 무관하게 두 계좌를 잠금 조회한다.
+        List<Account> lockedAccounts = accountRepository.findAllByIdForUpdateOrderByAccountId(List.of(22L, 21L));
+
+        // then: DB가 account_id 오름차순으로 잠금을 획득한 결과를 반환한다.
+        assertThat(lockedAccounts)
+                .extracting(Account::getAccountId)
+                .containsExactly(21L, 22L);
     }
 }
