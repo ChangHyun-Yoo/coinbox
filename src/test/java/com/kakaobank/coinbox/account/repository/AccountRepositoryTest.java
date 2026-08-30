@@ -162,4 +162,28 @@ class AccountRepositoryTest {
                 .extracting(Account::getAccountId)
                 .containsExactly(21L, 22L);
     }
+
+    @Test
+    @DisplayName("고객에게 이용 중인 저금통이 있는지 존재 여부로 확인한다")
+    void checksWhetherNonClosedCoinBoxExists() {
+        // given: 한 고객에게 ACTIVE 저금통과 입출금계좌가 있다.
+        Account demandDeposit = Account.create(
+                30L, 3L, ProductType.DEMAND_DEPOSIT, "3333000000030", null, 0L,
+                LocalDate.of(2026, 8, 28)
+        );
+        Account coinBox = Account.create(
+                31L, 3L, ProductType.COINBOX, "3310000000031", 30L, 0L,
+                LocalDate.of(2026, 8, 28)
+        );
+        accountRepository.saveAllAndFlush(List.of(demandDeposit, coinBox));
+
+        // when & then: 이용 중 저금통이 있을 때만 true를 반환한다.
+        assertThat(accountRepository.existsNonClosedCoinBox(3L)).isTrue();
+        assertThat(accountRepository.existsNonClosedCoinBox(4L)).isFalse();
+
+        // and: 해당 저금통을 해지하면 더는 이용 중인 것으로 보지 않는다.
+        coinBox.close();
+        accountRepository.saveAndFlush(coinBox);
+        assertThat(accountRepository.existsNonClosedCoinBox(3L)).isFalse();
+    }
 }

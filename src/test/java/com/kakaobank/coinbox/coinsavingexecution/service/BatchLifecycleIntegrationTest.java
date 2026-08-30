@@ -31,6 +31,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.batch.core.BatchStatus;
+import org.springframework.batch.test.MetaDataInstanceFactory;
+import org.springframework.batch.test.StepScopeTestUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
@@ -273,7 +275,7 @@ class BatchLifecycleIntegrationTest {
         );
 
         // when & then: 후보 트랜잭션 Commit이 실패한다.
-        assertThatThrownBy(() -> coinSavingService.execute(candidate))
+        assertThatThrownBy(() -> executeCoinSavingInStepScope(candidate))
                 .isInstanceOf(RuntimeException.class);
 
         // then: 이체 전 잔액과 빈 거래·원장·실행 이력이 유지된다.
@@ -299,10 +301,20 @@ class BatchLifecycleIntegrationTest {
             CoinSavingCandidate candidate,
             CountDownLatch ready,
             CountDownLatch start
-    ) throws InterruptedException {
+    ) throws Exception {
         ready.countDown();
         start.await();
-        return coinSavingService.execute(candidate);
+        return executeCoinSavingInStepScope(candidate);
+    }
+
+    /**
+     * 실제 배치와 같은 Step 범위를 활성화하여 실행별 정책 캐시 경계를 재현한다.
+     */
+    private CoinSavingResult executeCoinSavingInStepScope(CoinSavingCandidate candidate) throws Exception {
+        return StepScopeTestUtils.doInStepScope(
+                MetaDataInstanceFactory.createStepExecution(),
+                () -> coinSavingService.execute(candidate)
+        );
     }
 
     private BatchExecutionResult launchDailyBalanceAfterSignal(

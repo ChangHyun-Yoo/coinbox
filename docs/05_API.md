@@ -109,7 +109,8 @@ GET /api/v1/coinboxes/eligible-accounts
 X-Customer-Id: 700000000000000002
 ```
 
-인증 고객에게 이미 이용 중인 저금통이 없는지 확인하고, 저금통 개설이 가능한 입출금계좌를 반환합니다.
+인증 고객에게 이미 이용 중인 저금통이 없는지 전체 건수 계산이 아닌 `EXISTS` 조회로 확인하고,
+저금통 개설이 가능한 입출금계좌를 반환합니다.
 이 결과는 화면 표시를 위한 사전 조회이며 실제 개설 시 모든 가입 조건을 잠금 후 다시 검증합니다.
 `product_type = DEMAND_DEPOSIT`, `account_status = ACTIVE`, `parent_account_id is null`인 계좌만 대상이며,
 `BUSINESS_DEMAND_DEPOSIT` 개인사업자통장과 `MEETING_ACCOUNT` 모임통장은 반환하지 않습니다.
@@ -455,7 +456,7 @@ flowchart LR
 |---|---|
 | 고객 ACTIVE 계좌 조회 | 읽기 전용이며 반복 호출은 데이터를 변경하지 않습니다. 각 호출 시점에 Commit된 최신 계좌 상태와 잔액을 반환합니다. |
 | 가입 가능 계좌 조회 | 읽기 전용이므로 반복 호출해도 데이터를 변경하지 않습니다. |
-| 저금통 개설 | 고객 비관적 잠금과 고객당 이용 중인 저금통 검증으로 동시 중복 개설을 막습니다. 최초 요청 성공 후 반복 요청은 `COINBOX_ALREADY_EXISTS`가 됩니다. |
+| 저금통 개설 | 고객 비관적 잠금과 고객당 이용 중인 저금통 `EXISTS` 재검증으로 동시 중복 개설을 막습니다. 최초 요청 성공 후 반복 요청은 `COINBOX_ALREADY_EXISTS`가 됩니다. |
 | 저금통 비우기 | 최초 성공 후 저금통 잔액이 0원이므로 반복 요청은 `COINBOX_BALANCE_EMPTY`가 됩니다. 동일 요청에 같은 성공 응답을 재생하는 별도 Idempotency-Key는 현재 범위에서 다루지 않습니다. |
 | 일별 최종 잔액 수동 실행 | 같은 실행일을 다시 실행해도 `(account_id, balance_date)` 복합 UK를 기준으로 기존 스냅샷을 변경하지 않고 없는 행만 저장합니다. |
 | 동전모으기 수동 실행 | 같은 실행일을 다시 실행해도 잠금 후 실행 이력 재조회와 `UK(coinbox_id, execution_date)`가 중복 이체를 방지합니다. |

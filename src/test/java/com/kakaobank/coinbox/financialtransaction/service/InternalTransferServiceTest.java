@@ -125,6 +125,62 @@ class InternalTransferServiceTest {
     }
 
     @Test
+    @DisplayName("호출자가 이미 잠근 계좌는 재조회하지 않고 지정 금액을 이체한다")
+    void transfersWithAlreadyLockedAccountsWithoutAnotherQuery() {
+        // given: 호출 트랜잭션에서 잠금과 검증을 마친 두 ACTIVE 계좌다.
+        Account source = account(10L, "3333000000010", 10_000L);
+        Account target = account(20L, "3310000000020", 2_000L);
+
+        // when: 이미 잠긴 계좌로 4,000원을 이체한다.
+        TransferResult result = internalTransferService.transferLocked(source, target, 4_000L, LEDGER_SPEC);
+
+        // then: 계좌를 다시 조회하지 않고 전달된 최신 잔액에 거래를 반영한다.
+        assertThat(result)
+                .returns(4_000L, TransferResult::amount)
+                .returns(6_000L, TransferResult::sourceBalanceAfter)
+                .returns(6_000L, TransferResult::targetBalanceAfter);
+        verify(accountRepository, never()).findAllByIdForUpdateOrderByAccountId(any());
+    }
+
+    @Test
+    @DisplayName("호출자가 이미 잠근 출금 계좌의 잔액 전액을 재조회 없이 이체한다")
+    void transfersAllWithAlreadyLockedAccountsWithoutAnotherQuery() {
+        // given: 호출 트랜잭션에서 잠금과 검증을 마친 두 ACTIVE 계좌다.
+        Account source = account(10L, "3310000000010", 4_360L);
+        Account target = account(20L, "3333000000020", 100_000L);
+
+        // when: 이미 잠긴 출금 계좌의 전액을 이체한다.
+        TransferResult result = internalTransferService.transferAllLocked(source, target, LEDGER_SPEC);
+
+        // then: 재조회 없이 현재 잔액 전액이 이동한다.
+        assertThat(result)
+                .returns(4_360L, TransferResult::amount)
+                .returns(0L, TransferResult::sourceBalanceAfter)
+                .returns(104_360L, TransferResult::targetBalanceAfter);
+        verify(accountRepository, never()).findAllByIdForUpdateOrderByAccountId(any());
+    }
+
+    @Test
+    @DisplayName("이미 잠긴 계좌 경로에서도 식별자와 ACTIVE 상태를 다시 검증한다")
+    void rejectsInvalidAlreadyLockedAccounts() {
+        // given: 동일 계좌와 해지 계좌가 포함된 잘못된 호출이다.
+        Account active = account(10L, "3333000000010", 10_000L);
+        Account closed = account(20L, "3310000000020", 0L);
+        closed.close();
+
+        // when & then: 공통 거래 조건을 만족하지 않으면 금융거래를 생성하지 않는다.
+        assertBusinessException(
+                () -> internalTransferService.transferLocked(active, active, 1_000L, LEDGER_SPEC),
+                ErrorCode.ACCOUNT_NOT_TRANSFERABLE
+        );
+        assertBusinessException(
+                () -> internalTransferService.transferLocked(active, closed, 1_000L, LEDGER_SPEC),
+                ErrorCode.ACCOUNT_NOT_TRANSFERABLE
+        );
+        verify(financialTransactionRepository, never()).save(any());
+    }
+
+    @Test
     @DisplayName("두 계좌 중 하나라도 존재하지 않으면 이체하지 않는다")
     void rejectsTransferWhenAnAccountDoesNotExist() {
         // given: 잠금 조회 결과가 출금 계좌 한 건뿐이다.

@@ -58,6 +58,7 @@ class CoinSavingServiceTest {
         coinBoxRepository = mock(CoinBoxRepository.class);
         accountContractRepository = mock(AccountContractRepository.class);
         policyQueryRepository = mock(CoinBoxPolicyQueryRepository.class);
+        CoinSavingPolicyResolver policyResolver = new CoinSavingPolicyResolver(policyQueryRepository);
         executionRepository = mock(CoinSavingExecutionRepository.class);
         transferService = mock(InternalTransferService.class);
         snowflake = mock(Snowflake.class);
@@ -65,7 +66,7 @@ class CoinSavingServiceTest {
                 accountRepository,
                 coinBoxRepository,
                 accountContractRepository,
-                policyQueryRepository,
+                policyResolver,
                 executionRepository,
                 new CoinSavingAmountCalculator(),
                 transferService,
@@ -78,7 +79,12 @@ class CoinSavingServiceTest {
     void savesSuccessfulCoinSavingExecution() {
         // given: 전일 잔돈 850원을 저축할 수 있는 정상 저금통이다.
         PreparedContext context = prepareContext(100_850L, 500L);
-        when(transferService.transfer(eq(10L), eq(11L), eq(850L), any(TransferLedgerSpec.class)))
+        when(transferService.transferLocked(
+                eq(context.parentAccount()),
+                eq(context.coinBoxAccount()),
+                eq(850L),
+                any(TransferLedgerSpec.class)
+        ))
                 .thenReturn(new TransferResult(70L, 850L, 100_000L, 1_350L));
         when(snowflake.nextId()).thenReturn(80L);
 
@@ -108,7 +114,7 @@ class CoinSavingServiceTest {
 
         // then: 중복 결과만 반환하고 금융 처리는 하지 않는다.
         assertThat(result.status()).isEqualTo(CoinSavingResultStatus.DUPLICATE);
-        verify(transferService, never()).transfer(any(), any(), any(), any());
+        verify(transferService, never()).transferLocked(any(), any(), any(), any());
         verify(executionRepository, never()).save(any());
     }
 
@@ -125,7 +131,7 @@ class CoinSavingServiceTest {
         // then: 삭제한 비활성 사유 코드를 만들지 않고 제외한다.
         assertThat(result.status()).isEqualTo(CoinSavingResultStatus.EXCLUDED);
         verify(executionRepository, never()).save(any());
-        verify(transferService, never()).transfer(any(), any(), any(), any());
+        verify(transferService, never()).transferLocked(any(), any(), any(), any());
     }
 
     @Test
@@ -143,7 +149,7 @@ class CoinSavingServiceTest {
         // then: 금융거래 없이 계좌 비정상 사유를 남긴다.
         assertThat(result.status()).isEqualTo(CoinSavingResultStatus.SKIPPED);
         assertThat(result.reasonCode()).isEqualTo(CoinSavingReasonCode.ACCOUNT_NOT_ACTIVE);
-        verify(transferService, never()).transfer(any(), any(), any(), any());
+        verify(transferService, never()).transferLocked(any(), any(), any(), any());
     }
 
     @Test
@@ -159,7 +165,7 @@ class CoinSavingServiceTest {
         // then: 한도 도달 사유로 건너뛴다.
         assertThat(result.status()).isEqualTo(CoinSavingResultStatus.SKIPPED);
         assertThat(result.reasonCode()).isEqualTo(CoinSavingReasonCode.COINBOX_LIMIT_REACHED);
-        verify(transferService, never()).transfer(any(), any(), any(), any());
+        verify(transferService, never()).transferLocked(any(), any(), any(), any());
     }
 
     @Test
@@ -363,7 +369,7 @@ class CoinSavingServiceTest {
         // then: 금융거래 없이 계좌 비정상 사유를 저장한다.
         assertThat(result.status()).isEqualTo(CoinSavingResultStatus.SKIPPED);
         assertThat(result.reasonCode()).isEqualTo(CoinSavingReasonCode.ACCOUNT_NOT_ACTIVE);
-        verify(transferService, never()).transfer(any(), any(), any(), any());
+        verify(transferService, never()).transferLocked(any(), any(), any(), any());
     }
 
     private PreparedContext prepareContext(Long parentBalance, Long coinBoxBalance) {

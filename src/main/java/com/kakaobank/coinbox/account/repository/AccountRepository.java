@@ -76,14 +76,26 @@ public interface AccountRepository extends JpaRepository<Account, Long> {
             """, nativeQuery = true)
     List<Account> findAllByIdForUpdateOrderByAccountId(@Param("accountIds") List<Long> accountIds);
 
+    /**
+     * 전체 건수를 세지 않고 이용 중인 저금통 행이 하나라도 있는지 확인한다.
+     */
     @Query(value = """
-            select count(a.account_id)
-            from account a
-            where a.customer_id = :customerId
-              and a.product_type = 'COINBOX'
-              and a.account_status <> 'CLOSED'
+            select exists (
+                select 1
+                from account a
+                where a.customer_id = :customerId
+                  and a.product_type = 'COINBOX'
+                  and a.account_status <> 'CLOSED'
+            )
             """, nativeQuery = true)
-    long countNonClosedCoinBoxes(@Param("customerId") Long customerId);
+    long findNonClosedCoinBoxExistsValue(@Param("customerId") Long customerId);
+
+    /**
+     * MySQL EXISTS의 숫자 결과를 애플리케이션의 존재 여부 값으로 변환한다.
+     */
+    default boolean existsNonClosedCoinBox(Long customerId) {
+        return findNonClosedCoinBoxExistsValue(customerId) == 1L;
+    }
 
     @Query(value = """
             select a.*

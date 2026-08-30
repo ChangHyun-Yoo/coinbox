@@ -14,6 +14,7 @@ import com.kakaobank.coinbox.financialtransaction.repository.FinancialTransactio
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
@@ -51,6 +52,22 @@ public class InternalTransferService {
     }
 
     /**
+     * 호출 트랜잭션이 이미 잠근 계좌를 재조회하지 않고 지정 금액만큼 이체한다.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public TransferResult transferLocked(
+            Account source,
+            Account target,
+            Long amount,
+            TransferLedgerSpec ledgerSpec
+    ) {
+        validateAmount(amount);
+        validateLockedAccounts(source, target);
+        validateSufficientBalance(source, amount);
+        return executeTransfer(source, target, amount, ledgerSpec);
+    }
+
+    /**
      * 잠금 후 확정한 출금 계좌의 현재 잔액 전액을 이체해 잠금 전 조회값 사용을 피한다.
      */
     @Transactional
@@ -63,6 +80,21 @@ public class InternalTransferService {
         Long amount = lockedAccounts.source().getBalance();
         validateSufficientBalance(lockedAccounts.source(), amount);
         return executeTransfer(lockedAccounts.source(), lockedAccounts.target(), amount, ledgerSpec);
+    }
+
+    /**
+     * 호출 트랜잭션이 이미 잠근 출금 계좌의 현재 잔액 전액을 재조회 없이 이체한다.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public TransferResult transferAllLocked(
+            Account source,
+            Account target,
+            TransferLedgerSpec ledgerSpec
+    ) {
+        validateLockedAccounts(source, target);
+        Long amount = source.getBalance();
+        validateSufficientBalance(source, amount);
+        return executeTransfer(source, target, amount, ledgerSpec);
     }
 
     /**
@@ -86,11 +118,23 @@ public class InternalTransferService {
 
         Account source = findLockedAccount(lockedAccounts, sourceAccountId);
         Account target = findLockedAccount(lockedAccounts, targetAccountId);
-        if (source.getAccountStatus() != AccountStatus.ACTIVE
+        validateLockedAccounts(source, target);
+        return new LockedAccounts(source, target);
+    }
+
+    /**
+     * 이미 잠긴 계좌의 식별자와 거래 가능 상태를 공통 검증한다.
+     */
+    private void validateLockedAccounts(Account source, Account target) {
+        if (source == null || target == null
+                || source.getAccountId() == null || target.getAccountId() == null) {
+            throw new BusinessException(ErrorCode.ACCOUNT_NOT_FOUND);
+        }
+        if (source.getAccountId().equals(target.getAccountId())
+                || source.getAccountStatus() != AccountStatus.ACTIVE
                 || target.getAccountStatus() != AccountStatus.ACTIVE) {
             throw new BusinessException(ErrorCode.ACCOUNT_NOT_TRANSFERABLE);
         }
-        return new LockedAccounts(source, target);
     }
 
     /**

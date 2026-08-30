@@ -143,6 +143,12 @@ classDiagram
         -validateRelationships(CoinSavingCandidate candidate, Account parent, Account coinBox, CoinBox setting) void
     }
 
+    class CoinSavingPolicyResolver {
+        <<StepScopeComponent>>
+        +resolve(Long productVersionId) CoinBoxPolicySnapshot
+        -loadPolicy(Long productVersionId) CoinBoxPolicySnapshot
+    }
+
     class CoinSavingAmountCalculator {
         <<DomainService>>
         +calculate(Long previousClosingBalance, Long currentSourceBalance, Long currentCoinBoxBalance, Long maxAmount) CoinSavingCalculation
@@ -194,7 +200,7 @@ classDiagram
 
     class InternalTransferService {
         <<SharedService>>
-        +transfer(Long sourceId, Long targetId, Long amount, TransferLedgerSpec ledgerSpec) TransferResult
+        +transferLocked(Account source, Account target, Long amount, TransferLedgerSpec ledgerSpec) TransferResult
     }
 
     class Snowflake {
@@ -226,11 +232,12 @@ classDiagram
     CoinSavingService --> AccountRepository
     CoinSavingService --> CoinBoxRepository
     CoinSavingService --> AccountContractRepository
-    CoinSavingService --> CoinBoxPolicyQueryRepository
+    CoinSavingService --> CoinSavingPolicyResolver
     CoinSavingService --> CoinSavingExecutionRepository
     CoinSavingService --> CoinSavingAmountCalculator
     CoinSavingService --> InternalTransferService
     CoinSavingService --> Snowflake
+    CoinSavingPolicyResolver --> CoinBoxPolicyQueryRepository
     CoinSavingAmountCalculator ..> CoinSavingCalculation
     CoinSavingExecutionRepository ..> CoinSavingExecution
 ```
@@ -249,10 +256,11 @@ classDiagram
 | `CoinSavingJobConfig` | `JdbcPagingItemReader`와 `CoinSavingItemWriter`로 Chunk Step을 구성하며 기본 페이지는 1,000건, 청크는 1건으로 설정합니다. | `CS-01~02` |
 | `JdbcPagingItemReader<CoinSavingCandidate>` | `coinbox_id` 오름차순으로 잠금 없는 후보 조회를 수행하고 전일 잔액을 후보에 포함합니다. | `CS-02` |
 | `CoinSavingItemWriter` | 후보를 순회하며 저금통별 업무 서비스를 호출합니다. 업무 조회나 금액 계산은 수행하지 않습니다. | `CS-03~08` |
-| `CoinSavingService` | 잠금, 상태·계약·정책·실행 이력 재검증과 성공·건너뜀 실행 이력 저장을 조정합니다. | `CS-03~08` |
+| `CoinSavingService` | 잠금, 상태·계약·실행 이력 재검증, 정책 Resolver 호출과 성공·건너뜀 실행 이력 저장을 조정합니다. | `CS-03~08` |
+| `CoinSavingPolicyResolver` | 매 동전모으기 배치 Step 실행마다 빈 캐시로 시작합니다. 상품 버전별 첫 요청은 정책을 DB에서 조회하고 같은 실행 안의 후속 요청만 불변 스냅샷으로 재사용합니다. | `CS-04` |
 | `CoinSavingAmountCalculator` | DB 접근 없이 전일 잔돈, 실행 시점 잔액과 한도로 실제 저축액 또는 건너뜀 사유를 계산합니다. | `CS-05` |
 | `CoinSavingExecutionRepository` | 실행 이력 재확인과 `SUCCESS`, `SKIPPED` 결과 저장을 담당합니다. | `CS-04`, `CS-06~07` |
-| `InternalTransferService` | 온라인 프로세스와 같은 계좌 잠금·거래·원장·잔액 처리 규칙을 재사용합니다. | `CS-06` |
+| `InternalTransferService` | `CoinSavingService`가 이미 잠근 계좌를 추가 조회·잠금 없이 받아 상태·잔액을 재검증하고 온라인 프로세스와 같은 거래·원장·잔액 처리 규칙을 재사용합니다. | `CS-06` |
 
 ### 2.2 배치 트랜잭션 경계
 
@@ -390,6 +398,8 @@ classDiagram
         <<Service>>
         +transfer(Long sourceId, Long targetId, Long amount, TransferLedgerSpec ledgerSpec) TransferResult
         +transferAll(Long sourceId, Long targetId, TransferLedgerSpec ledgerSpec) TransferResult
+        +transferLocked(Account source, Account target, Long amount, TransferLedgerSpec ledgerSpec) TransferResult
+        +transferAllLocked(Account source, Account target, TransferLedgerSpec ledgerSpec) TransferResult
         -lockAndValidateAccounts(Long sourceId, Long targetId) LockedAccounts
         -executeTransfer(Account source, Account target, Long amount, TransferLedgerSpec ledgerSpec) TransferResult
     }
@@ -441,7 +451,7 @@ classDiagram
         +findEligibleDemandDepositAccounts(Long customerId) List~Account~
         +findByCustomerIdAndAccountNumber(Long customerId, String accountNumber) Optional~Account~
         +findAllByIdForUpdateOrderByAccountId(List~Long~ accountIds) List~Account~
-        +countNonClosedCoinBoxes(Long customerId) long
+        +existsNonClosedCoinBox(Long customerId) boolean
         +countByAccountNumber(String accountNumber) long
         +save(Account account) Account
     }
@@ -608,11 +618,11 @@ classDiagram
 | `CoinBoxController` | 요청값 수신, DTO 변환과 결과 응답. 업무 판단은 수행하지 않습니다. | 가입, 비우기, 해지 |
 | `CoinBoxService` | 저금통 고유 가입 조건, 고객당 1개 제약, 상품 정책 선택, 연결 관계와 해지 상태를 검증하고 전체 흐름을 조정합니다. | `JOIN-*`, `EMPTY-01~02`, `TERM-*` |
 | `AccountNumberGenerator` | 상품별 4자리 prefix와 9자리 난수로 13자리 계좌번호 후보를 만들고 기존 번호와 충돌하면 재채번합니다. DB 유니크 제약이 동시 요청의 최종 중복을 차단합니다. | `JOIN-05` |
-| `InternalTransferService` | 계좌 ID 오름차순 잠금, 계좌 상태와 잔액 검증, 금융거래·원장·잔액의 원자적 반영을 담당합니다. | `EMPTY-03~05`, `TERM-04`, `CS-06` |
+| `InternalTransferService` | 일반 이체·비우기는 계좌 ID 오름차순 잠금을 직접 획득합니다. 동전모으기·해지는 상위 Service가 이미 잠근 계좌를 받아 재잠금 없이 상태와 잔액을 검증하며, 두 경로 모두 금융거래·원장·잔액을 원자적으로 반영합니다. | `EMPTY-03~05`, `TERM-04`, `CS-06` |
 | `TransferLedgerSpec` | 동일한 이체 로직에서 비우기·동전모으기·해지의 원장 코드와 통장 적요를 다르게 전달합니다. | 비우기, 동전모으기, 해지 |
 | `CustomerRepository` | 고객 잠금으로 동일 고객의 가입·해지 경쟁을 직렬화합니다. | `JOIN-03`, `TERM-01` |
-| `AccountRepository` | `DEMAND_DEPOSIT`만을 대상으로 하는 가입 가능 계좌 조회, 고객 소유 계좌 조회와 계좌 ID 오름차순 잠금 조회를 담당합니다. | 모든 온라인 프로세스 |
-| `CoinBoxPolicyQueryRepository` | JPA Native Query로 `PRODUCT`, `PRODUCT_VERSION`, `COINBOX_POLICY`를 조인하고 읽기 모델로 반환하여 Service의 조인 세부사항을 숨깁니다. | `JOIN-04`, `CS-04` |
+| `AccountRepository` | `DEMAND_DEPOSIT`만을 대상으로 하는 가입 가능 계좌 조회, 이용 중 저금통 `EXISTS` 조회, 고객 소유 계좌 조회와 계좌 ID 오름차순 잠금 조회를 담당합니다. | 모든 온라인 프로세스 |
+| `CoinBoxPolicyQueryRepository` | JPA Native Query로 `PRODUCT`, `PRODUCT_VERSION`, `COINBOX_POLICY`를 조인하고 읽기 모델로 반환하여 Service의 조인 세부사항을 숨깁니다. 동전모으기에서는 매 배치 Step의 상품 버전별 최초 한 번만 호출됩니다. | `JOIN-04`, `CS-04` |
 | `AccountContractRepository` | 계약 생성 및 해지 시 활성 계약 잠금·종료를 담당합니다. | `JOIN-05`, `TERM-02·05` |
 | `CoinBoxRepository` | 저금통 설정 생성 및 동전모으기 설정 잠금·종료를 담당합니다. | `JOIN-05`, `TERM-02·05` |
 | `FinancialTransactionRepository` | 하나의 자금 이동을 나타내는 금융거래 헤더를 저장합니다. | 비우기, 동전모으기, 해지 |
@@ -626,7 +636,7 @@ classDiagram
 | `CoinBoxService.openCoinBox` | 고객·선택 계좌 잠금부터 `ACCOUNT`, `ACCOUNT_CONTRACT`, `COINBOX` 생성까지 |
 | `CoinBoxService.emptyCoinBox` | 저금통 검증부터 `InternalTransferService.transferAll`의 거래·원장·잔액 반영까지 |
 | `CoinBoxService.terminateCoinBox` | 고객·계좌·설정·계약 잠금, 필요 시 잔액 이전, 계좌·계약·설정 종료까지 |
-| `InternalTransferService` | 호출한 온라인 트랜잭션에 참여하며, 단독 이체 호출 시에도 동일한 원자성 경계를 제공합니다. |
+| `InternalTransferService` | ID 기반 메서드는 계좌 잠금부터 시작하고, 이미 잠긴 `Account` 기반 메서드는 `MANDATORY` 전파 속성으로 호출 트랜잭션에 필수 참여하여 잠금을 재사용합니다. 두 경로 모두 거래·원장·잔액을 같은 원자성 경계에 반영합니다. |
 
 ---
 
@@ -640,7 +650,7 @@ classDiagram
 | `DailyBalanceQueryRepository` | `ACCOUNT` | 없음 |
 | `DailyBalanceJdbcRepository` | 없음 | `ACCOUNT_DAILY_BALANCE` |
 | `JdbcPagingItemReader<CoinSavingCandidate>` | `COINBOX`, 저금통·연결 `ACCOUNT`, `ACCOUNT_DAILY_BALANCE`, `COIN_SAVING_EXECUTION` | 없음 |
-| `CoinSavingService` | 잠금 대상 `ACCOUNT`, `COINBOX`, `ACCOUNT_CONTRACT`; 조회 전용 `PRODUCT_VERSION`, `COINBOX_POLICY`; 실행 이력 | `COIN_SAVING_EXECUTION` 및 `InternalTransferService`가 변경하는 거래·원장·계좌 |
+| `CoinSavingService` / `CoinSavingPolicyResolver` | 잠금 대상 `ACCOUNT`, `COINBOX`, `ACCOUNT_CONTRACT`; 매 배치 실행에서 상품 버전별 최초 조회하는 `PRODUCT_VERSION`, `COINBOX_POLICY`; 실행 이력 | `COIN_SAVING_EXECUTION` 및 `InternalTransferService`가 변경하는 거래·원장·계좌 |
 
 ---
 
@@ -669,9 +679,13 @@ classDiagram
 - 잠금 조회 메서드는 다이어그램에 표시된 순서를 보장해야 하며, 여러 계좌는 SQL의 `order by account_id`와
   비관적 쓰기 잠금을 함께 사용합니다.
 - `InternalTransferService`의 출금·입금 원장 생성은 한쪽만 성공할 수 없도록 같은 트랜잭션에서 수행합니다.
+- 이미 계좌 잠금을 획득한 동전모으기·해지는 `Account` 기반 이체 메서드로 잠금을 재사용하며, 해당 메서드는
+  외부 트랜잭션 없이 단독 실행되지 않도록 `MANDATORY` 전파 속성을 사용합니다.
 - `CoinSavingAmountCalculator`는 Repository에 의존하지 않는 순수 계산 클래스로 두어 한도 경계값과
   `SKIPPED` 사유를 단위 테스트하기 쉽게 만듭니다.
 - `CoinBoxPolicyQueryRepository`는 상품 관련 세 테이블의 조인 결과를 읽기 모델로 반환하되,
   계약에는 조회 결과 전체가 아니라 `product_version_id`만 저장합니다.
+- `CoinSavingPolicyResolver`의 정책 캐시는 `@StepScope`로 제한합니다. 매 배치 실행은 DB에서 정책을 다시
+  읽고, 그 한 번의 Step 실행 중 같은 상품 버전을 처리할 때만 불변 스냅샷을 재사용합니다.
 - `ACCOUNT_DAILY_BALANCE`와 `COIN_SAVING_EXECUTION`의 복합 UK를 애플리케이션 사전 조회만으로
   대체하지 않고 DB의 최종 정합성 제약으로 유지합니다.

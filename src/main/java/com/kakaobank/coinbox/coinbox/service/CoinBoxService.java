@@ -189,9 +189,9 @@ public class CoinBoxService {
 
         Long transferredAmount = 0L;
         if (lockedCoinBoxAccount.getBalance() > 0L) {
-            transferredAmount = internalTransferService.transferAll(
-                    lockedCoinBoxAccount.getAccountId(),
-                    lockedParentAccount.getAccountId(),
+            transferredAmount = internalTransferService.transferAllLocked(
+                    lockedCoinBoxAccount,
+                    lockedParentAccount,
                     TERMINATION_LEDGER_SPEC
             ).amount();
         }
@@ -235,7 +235,7 @@ public class CoinBoxService {
      * 한 고객이 동시에 둘 이상의 이용 중 저금통을 갖지 못하게 한다.
      */
     private void validateNoActiveCoinBox(Long customerId) {
-        if (accountRepository.countNonClosedCoinBoxes(customerId) > 0L) {
+        if (accountRepository.existsNonClosedCoinBox(customerId)) {
             throw new BusinessException(ErrorCode.COINBOX_ALREADY_EXISTS);
         }
     }

@@ -18,13 +18,14 @@ HTTP·예외 설계는 [`05_API.md`](./05_API.md)를 참고합니다.
 | `AccountQueryService` | ACTIVE 계좌 조회 결과를 최상위·자식 계좌 구조로 조립 |
 | `CoinBoxController` | 요청 수신, 입력값 검증, 응답 변환 |
 | `CoinBoxService` | 가입 조건과 저금통 고유 규칙 검증, 개설·비우기·해지 흐름 조정 |
-| `InternalTransferService` | 계좌 잠금, 계좌 유효성 검증, 거래·원장·잔액의 원자적 반영 |
+| `InternalTransferService` | 일반 이체·비우기에서는 계좌를 잠그고, 동전모으기·해지에서는 상위 Service가 이미 잠근 계좌를 재사용하여 계좌 유효성 검증과 거래·원장·잔액을 원자적으로 반영 |
 | `BatchScheduler` | 정해진 시각에 일별 잔액 및 동전모으기 Job 실행 |
 | `ManualBatchController` | 운영자의 필수 실행일을 검증하고 수동 Job 실행 결과 반환 |
 | `BatchExecutionService` | 자동·수동 진입점에 같은 Job 파라미터와 실행 규칙 적용 |
 | `DailyBalanceTasklet` | 계좌 잔액 스냅샷 조회와 일괄 저장 |
 | `JdbcPagingItemReader` | 동전모으기 후보를 잠금 없이 페이징 조회 |
 | `CoinSavingItemWriter` / `CoinSavingService` | 후보별 독립 트랜잭션과 동전모으기 업무 규칙 처리 |
+| `CoinSavingPolicyResolver` | 한 동전모으기 Step에서 상품 버전별 정책을 최초 한 번 조회하고 불변 스냅샷 재사용 |
 | `DB` | 고객·계좌·상품 버전·정책·계약·저금통 데이터 조회 및 저장 |
 
 Repository를 별도 참가자로 추가하면 호출 관계는 더 자세히 표현할 수 있지만,
@@ -356,6 +357,7 @@ sequenceDiagram
     participant Reader as JdbcPagingItemReader
     participant Writer as CoinSavingItemWriter
     participant Service as CoinSavingService
+    participant Policy as CoinSavingPolicyResolver
     participant Transfer as InternalTransferService
     participant DB as DB
 
@@ -385,36 +387,54 @@ sequenceDiagram
             DB-->>Service: 잠긴 동전모으기 설정
             Service->>DB: ACCOUNT_CONTRACT 조회 및 비관적 잠금<br/>(account_id = 저금통 accountId)
             DB-->>Service: 잠긴 계약과 productVersionId
-            Note over Service,DB: CS-04. 계약 정책 조회 및 동일 날짜 실행 이력 재확인
-            Service->>DB: PRODUCT_VERSION·COINBOX_POLICY 조회<br/>(productVersionId, max_amount)
-            DB-->>Service: 계약 상품 버전과 최대 한도 정책
+            Note over Service,DB: CS-04. 동일 날짜 실행 이력 재확인 및 Step 정책 캐시 사용
             Service->>DB: 실행 이력 재조회<br/>(coinbox_id, executionDate)
             DB-->>Service: 실행 이력 또는 없음
-            Note over Service: CS-05. 업무 조건 검증 및 실제 저축 금액 계산
 
             alt 이미 실행 이력이 있음
                 Service-->>Writer: 중복 실행 없이 종료
             else 동전모으기가 비활성 또는 시작일 조건 불충족
                 Note right of Service: 실행 이력을 생성하지 않고 대상에서 제외
                 Service-->>Writer: 처리 제외
-            else 활성 계약·상품 버전·저금통 정책이 유효하지 않음
-                Service-->>Writer: 시스템 정합성 오류<br/>개별 트랜잭션 Rollback
-            else 계좌 비정상·일별 잔액 없음·잔돈 없음·잔액 부족·한도 도달 또는 초과
+            else 계좌가 ACTIVE가 아님
                 Note over Service,DB: CS-07. 금융거래 없이 SKIPPED 실행 이력 저장
-                Service->>DB: COIN_SAVING_EXECUTION 저장<br/>(SKIPPED, saving_amount = 0, reason_code)
+                Service->>DB: COIN_SAVING_EXECUTION 저장<br/>(SKIPPED, ACCOUNT_NOT_ACTIVE)
                 DB-->>Service: SKIPPED 저장 완료
                 Service-->>Writer: 건너뜀 결과
-            else 저축 가능
-                Note over Service,DB: CS-06. 이체와 SUCCESS 실행 이력을 원자적으로 반영
-                Service->>Service: savingAmount 계산<br/>min(전일 잔액 % 1,000, 한도 잔여액)
-                Service->>Transfer: 당행 이체<br/>(TRANSFER, 동전모으기 출금/입금 원장 코드)
-                Transfer->>DB: FINANCIAL_TRANSACTION 저장<br/>(TRANSFER, SUCCESS)
-                Transfer->>DB: 두 ACCOUNT_ENTRY 저장<br/>(transaction_datetime, entry_description 포함)<br/>및 두 ACCOUNT 잔액 반영
-                DB-->>Transfer: 이체 처리 완료
-                Transfer-->>Service: transactionId
-                Service->>DB: COIN_SAVING_EXECUTION 저장<br/>(SUCCESS, transactionId, savingAmount)
-                DB-->>Service: 실행 이력 저장 완료
-                Service-->>Writer: 성공 결과
+            else 활성 계약이 유효하지 않음
+                Service-->>Writer: 시스템 정합성 오류<br/>개별 트랜잭션 Rollback
+            else 계약과 설정이 유효함
+                Service->>Policy: 정책 조회(productVersionId)
+                alt Step 캐시에 해당 상품 버전이 없음
+                    Policy->>DB: PRODUCT_VERSION·COINBOX_POLICY 조회<br/>(productVersionId, max_amount)
+                    DB-->>Policy: 계약 상품 버전과 최대 한도 정책
+                    Policy->>Policy: 불변 정책 스냅샷 캐시 저장
+                else Step 캐시에 해당 상품 버전이 있음
+                    Policy->>Policy: 캐시된 정책 스냅샷 재사용
+                end
+                Policy-->>Service: maxAmount
+                Note over Service: CS-05. 업무 조건 검증 및 실제 저축 금액 계산
+
+                alt 상품 버전·저금통 정책이 존재하지 않음
+                    Service-->>Writer: 시스템 정합성 오류<br/>개별 트랜잭션 Rollback
+                else 일별 잔액 없음·잔돈 없음·잔액 부족·한도 도달 또는 초과
+                    Note over Service,DB: CS-07. 금융거래 없이 SKIPPED 실행 이력 저장
+                    Service->>DB: COIN_SAVING_EXECUTION 저장<br/>(SKIPPED, saving_amount = 0, reason_code)
+                    DB-->>Service: SKIPPED 저장 완료
+                    Service-->>Writer: 건너뜀 결과
+                else 저축 가능
+                    Note over Service,DB: CS-06. 기존 계좌 잠금을 재사용해 이체와 SUCCESS 이력을 원자적으로 반영
+                    Service->>Service: savingAmount 계산<br/>min(전일 잔액 % 1,000, 한도 잔여액)
+                    Service->>Transfer: 이미 잠긴 ACCOUNT로 당행 이체<br/>(추가 계좌 조회·잠금 없음)
+                    Transfer->>Transfer: 두 계좌 유효성·잔액 재검증
+                    Transfer->>DB: FINANCIAL_TRANSACTION 저장<br/>(TRANSFER, SUCCESS)
+                    Transfer->>DB: 두 ACCOUNT_ENTRY 저장<br/>(transaction_datetime, entry_description 포함)<br/>및 두 ACCOUNT 잔액 반영
+                    DB-->>Transfer: 이체 처리 완료
+                    Transfer-->>Service: transactionId
+                    Service->>DB: COIN_SAVING_EXECUTION 저장<br/>(SUCCESS, transactionId, savingAmount)
+                    DB-->>Service: 실행 이력 저장 완료
+                    Service-->>Writer: 성공 결과
+                end
             end
             Note over Writer,DB: CS-08. 후보별 Commit 또는 Rollback 후 다음 후보 처리
         end
@@ -442,9 +462,9 @@ sequenceDiagram
 | `CS-01` | Job은 월요일부터 금요일까지 `10:00`에 공휴일과 무관하게 자동 실행하며 `/internal/v1/batches/coin-saving`에서 지정 날짜로 수동 실행할 수도 있습니다. 자동 스케줄은 주말에 시작하지 않지만 명시적인 수동 실행은 요일을 제한하지 않습니다. 두 진입점 모두 `BatchExecutionService`를 사용하고 `executionDate`를 실행 이력의 멱등성 기준일, `previousDate`를 저축 예정 금액의 잔액 기준일로 전달합니다. |
 | `CS-02` | `JdbcPagingItemReader`는 `coinbox_id` 오름차순으로 기본 1,000건씩 후보를 조회합니다. 설정 활성, 시작일, 동일 날짜 실행 이력 부재를 1차 조건으로 사용하고 연결 입출금계좌의 전일 `closing_balance`를 함께 읽습니다. 후보 조회에는 잠금을 걸지 않으며 결과는 최종 실행 보장이 아니라 처리 대상을 줄이는 스냅샷입니다. 별도 ItemProcessor는 사용하지 않습니다. |
 | `CS-03` | 각 후보는 독립 트랜잭션으로 처리합니다. 저금통과 연결 입출금계좌를 `account_id` 오름차순으로 잠근 뒤 `COINBOX`, 저금통의 `ACCOUNT_CONTRACT` 순서로 잠급니다. 잠금 후 두 계좌의 `ACTIVE` 상태, 연결 관계, 동전모으기 설정과 시작일 및 계약 상태를 다시 확인합니다. 후보 조회 이후 변경된 값은 잠금 후 값이 우선합니다. |
-| `CS-04` | 활성 계약의 `product_version_id`로 `PRODUCT_VERSION`과 `COINBOX_POLICY.max_amount`를 조회합니다. 참조된 버전과 정책은 업무 값이 변경되지 않으므로 별도 잠금을 걸지 않습니다. `COINBOX` 잠금을 잡은 상태에서 `(coinbox_id, executionDate)` 실행 이력을 재조회하고, 이미 존재하면 아무 금융 처리도 하지 않습니다. 복합 UK가 동시에 들어온 중복 저장을 최종 차단합니다. |
+| `CS-04` | `COINBOX` 잠금을 잡은 상태에서 `(coinbox_id, executionDate)` 실행 이력을 먼저 재조회하고, 이미 존재하면 정책 조회 없이 종료합니다. 미실행 후보의 활성 계약이 참조하는 `product_version_id`는 `CoinSavingPolicyResolver`가 Step 범위에서 버전별로 캐시합니다. 동전모으기 배치가 시작될 때마다 빈 캐시로 시작하므로 같은 상품 버전의 첫 후보는 매 실행마다 `PRODUCT_VERSION`과 `COINBOX_POLICY.max_amount`를 잠금 없이 조회하며, 그 한 번의 배치 안의 후속 후보만 불변 정책 스냅샷을 재사용합니다. 같은 날짜의 수동 재실행·Job 재시작·동시 Step 사이에도 캐시는 공유되지 않습니다. 복합 UK가 동시에 들어온 중복 저장을 최종 차단합니다. |
 | `CS-05` | 전일 잔액이 없거나 잔돈이 0원인지, 두 계좌가 정상인지, 실행 시점 연결 계좌 잔액이 1,000원보다 큰지, 저금통이 한도에 도달·초과했는지를 판단합니다. 기본 예정 금액은 `previousClosingBalance % 1,000`, 실제 금액은 `min(기본 예정 금액, 최대 한도 - 현재 저금통 잔액)`입니다. 모든 계산은 원 단위 `Long`으로 수행합니다. |
-| `CS-06` | 저축 가능하면 연결 입출금계좌에서 저금통으로 실제 금액을 이체합니다. `FINANCIAL_TRANSACTION(TRANSFER, SUCCESS)`, 출금·입금 `ACCOUNT_ENTRY`, 두 계좌 잔액과 `COIN_SAVING_EXECUTION(SUCCESS)`을 같은 트랜잭션에 반영합니다. 실행 이력의 `transaction_id`는 생성된 금융거래를 가리키며 성공 사유 코드는 `null`입니다. |
+| `CS-06` | 저축 가능하면 `CS-03`에서 이미 잠근 연결 입출금계좌와 저금통 계좌를 공통 당행 이체 로직에 전달합니다. 공통 로직은 계좌를 다시 조회하거나 잠그지 않고 메모리의 최신 상태와 잔액을 재검증한 뒤 이체합니다. `FINANCIAL_TRANSACTION(TRANSFER, SUCCESS)`, 출금·입금 `ACCOUNT_ENTRY`, 두 계좌 잔액과 `COIN_SAVING_EXECUTION(SUCCESS)`을 같은 트랜잭션에 반영합니다. 실행 이력의 `transaction_id`는 생성된 금융거래를 가리키며 성공 사유 코드는 `null`입니다. |
 | `CS-07` | 자금 이동이 불가능한 정상적인 업무 조건은 금융거래 없이 `COIN_SAVING_EXECUTION(SKIPPED, saving_amount = 0)`으로 남기고 원인을 `reason_code`로 기록합니다. 반면 후보 조회 후 설정이 비활성화되었거나 시작일 조건을 충족하지 않게 된 경우에는 삭제하기로 한 비활성 사유 코드를 만들지 않고 실행 이력 없이 처리 대상에서 제외합니다. |
 | `CS-08` | `SUCCESS`와 `SKIPPED` 결과는 해당 후보의 독립 트랜잭션으로 Commit되어 다른 후보 결과와 분리됩니다. 예상하지 못한 오류가 발생하면 해당 후보의 금융 처리 전체를 Rollback하고 Step을 실패시킵니다. 현재 구현에는 자동 Retry·Skip과 `FAILED / SYSTEM_ERROR` 실행 이력 저장을 구성하지 않았으며, Spring Batch 재시작·복구 정책과 함께 운영 확장 범위로 남겨 둡니다. |
 
@@ -510,7 +530,7 @@ sequenceDiagram
             alt 잠금 후 저금통 잔액이 0원보다 큼
                 Note over CoinBox,DB: TERM-04. 남은 잔액 전액을 연결 계좌로 이전
                 Note right of CoinBox: transaction_type = TRANSFER<br/>출금 원장 = WITHDRAWAL / COINBOX_TERMINATION / 저금통 해지<br/>입금 원장 = DEPOSIT / COINBOX / 저금통
-                CoinBox->>Transfer: 잠긴 계좌의 잔액 전액 당행 이체<br/>(저금통 accountId, parentAccountId, 거래·원장 코드)
+                CoinBox->>Transfer: 이미 잠긴 ACCOUNT의 잔액 전액 당행 이체<br/>(추가 계좌 조회·잠금 없음)
                 Transfer->>Transfer: 두 계좌 유효성·잔액 재검증
                 Transfer->>DB: FINANCIAL_TRANSACTION 저장<br/>(TRANSFER, SUCCESS)
                 Transfer->>DB: 출금·입금 ACCOUNT_ENTRY 저장<br/>(transaction_datetime, entry_description 포함)
@@ -543,7 +563,7 @@ sequenceDiagram
 | `TERM-01` | 해지 트랜잭션은 `CUSTOMER` 잠금으로 시작합니다. 이 잠금은 같은 고객의 신규가입과 해지 요청을 직렬화하여 해지가 완료되기 전에 새 저금통이 개설되는 경쟁을 막습니다. 고객이 없으면 `CUSTOMER_NOT_FOUND`를 반환합니다. 고객이 존재하면 `customerId`와 하이픈 없는 `accountNumber`로 고객 소유 계좌를 조회하고 `product_type = COINBOX`인지 확인하며, 계좌가 없거나 저금통이 아니면 `COINBOX_NOT_FOUND`를 반환합니다. |
 | `TERM-02` | 저금통과 연결 입출금계좌를 `account_id` 오름차순으로 잠근 다음 `COINBOX`, 저금통의 `ACCOUNT_CONTRACT` 순서로 잠급니다. 잠금 후 고객 소유 관계, `parent_account_id` 연결 관계, 상품 유형, 두 계좌의 `ACTIVE` 상태, 계약의 `ACTIVE` 상태와 저금통 설정 존재 여부를 다시 검증합니다. 이미 `CLOSED` 또는 `TERMINATED`라면 일반 유효성 오류와 구분하여 `이미 해지된 저금통입니다.`를 반환합니다. |
 | `TERM-03` | 모든 관련 행을 잠근 뒤 읽은 저금통 잔액으로 자금 이전 여부를 결정합니다. 잔액이 0원이면 금융거래와 계좌 원장을 생성하지 않고 종료 상태 변경으로 이동합니다. 잔액이 있다면 그 전액을 해지 이체 금액으로 확정합니다. 이자 계산과 지급은 과제 범위에 포함하지 않습니다. |
-| `TERM-04` | 잔액이 있으면 이미 잠긴 두 계좌를 사용하는 공통 당행 이체 로직에 위임합니다. 거래 유형은 `TRANSFER`이고, 저금통 출금 원장은 `WITHDRAWAL / COINBOX_TERMINATION / 저금통 해지`, 연결 계좌 입금 원장은 `DEPOSIT / COINBOX / 저금통`으로 기록합니다. 금융거래 한 행과 계좌 원장 두 행을 생성하고 저금통 잔액을 0원으로 이전합니다. |
+| `TERM-04` | 잔액이 있으면 이미 잠긴 두 `ACCOUNT` 엔티티를 공통 당행 이체 로직에 전달합니다. 공통 로직은 동일 트랜잭션에 필수로 참여하며 계좌를 다시 조회하거나 잠그지 않고 상태와 잔액을 재검증합니다. 거래 유형은 `TRANSFER`이고, 저금통 출금 원장은 `WITHDRAWAL / COINBOX_TERMINATION / 저금통 해지`, 연결 계좌 입금 원장은 `DEPOSIT / COINBOX / 저금통`으로 기록합니다. 금융거래 한 행과 계좌 원장 두 행을 생성하고 저금통 잔액을 0원으로 이전합니다. |
 | `TERM-05` | 잔액 이전 후 `COINBOX.coin_saving_enabled = false`, `coin_saving_start_date = null`로 자동저축을 중단합니다. 계약은 `TERMINATED`와 실제 해지일로 종료하고, 저금통 계좌는 잔액 0원인 `CLOSED` 상태로 변경합니다. 연결 입출금계좌는 해지 대상이 아니므로 `ACTIVE`를 유지합니다. |
 | `TERM-06` | 잔액 이전과 금융거래·원장 생성, 저금통 설정·계약·계좌 종료를 모두 하나의 트랜잭션으로 Commit합니다. 중간 작업 하나라도 실패하면 전부 Rollback하므로 잔액만 이전되고 저금통이 열려 있거나, 계좌만 닫히고 잔액이 남는 상태가 발생하지 않습니다. Commit 이후 같은 저금통으로 다시 요청하면 이미 해지된 저금통 예외를 반환합니다. |
 

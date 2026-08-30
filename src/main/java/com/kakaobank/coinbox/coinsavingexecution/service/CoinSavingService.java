@@ -9,7 +9,6 @@ import com.kakaobank.coinbox.accountcontract.repository.AccountContractRepositor
 import com.kakaobank.coinbox.accountentry.entity.EntryCode;
 import com.kakaobank.coinbox.coinbox.entity.CoinBox;
 import com.kakaobank.coinbox.coinbox.repository.CoinBoxRepository;
-import com.kakaobank.coinbox.coinboxpolicy.repository.CoinBoxPolicyQueryRepository;
 import com.kakaobank.coinbox.coinboxpolicy.repository.CoinBoxPolicySnapshot;
 import com.kakaobank.coinbox.coinsavingexecution.batch.CoinSavingCandidate;
 import com.kakaobank.coinbox.coinsavingexecution.entity.CoinSavingExecution;
@@ -47,7 +46,7 @@ public class CoinSavingService {
     private final AccountRepository accountRepository;
     private final CoinBoxRepository coinBoxRepository;
     private final AccountContractRepository accountContractRepository;
-    private final CoinBoxPolicyQueryRepository coinBoxPolicyQueryRepository;
+    private final CoinSavingPolicyResolver coinSavingPolicyResolver;
     private final CoinSavingExecutionRepository coinSavingExecutionRepository;
     private final CoinSavingAmountCalculator amountCalculator;
     private final InternalTransferService internalTransferService;
@@ -91,9 +90,7 @@ public class CoinSavingService {
         }
 
         validateContract(contract, candidate.executionDate());
-        CoinBoxPolicySnapshot policy = coinBoxPolicyQueryRepository
-                .findByProductVersionId(contract.getProductVersionId())
-                .orElseThrow(() -> new IllegalStateException("CoinBox policy is missing"));
+        CoinBoxPolicySnapshot policy = coinSavingPolicyResolver.resolve(contract.getProductVersionId());
 
         CoinSavingCalculation calculation = amountCalculator.calculate(
                 candidate.previousClosingBalance(),
@@ -109,9 +106,9 @@ public class CoinSavingService {
             );
         }
 
-        TransferResult transfer = internalTransferService.transfer(
-                parentAccount.getAccountId(),
-                coinBoxAccount.getAccountId(),
+        TransferResult transfer = internalTransferService.transferLocked(
+                parentAccount,
+                coinBoxAccount,
                 calculation.savingAmount(),
                 COIN_SAVING_LEDGER_SPEC
         );

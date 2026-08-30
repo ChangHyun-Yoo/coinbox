@@ -88,7 +88,7 @@ class CoinBoxServiceTest {
         Customer customer = Customer.create(1L);
         Account parent = parentAccount(10L, 1L, 100_000L);
         when(customerRepository.findById(1L)).thenReturn(Optional.of(customer));
-        when(accountRepository.countNonClosedCoinBoxes(1L)).thenReturn(0L);
+        when(accountRepository.existsNonClosedCoinBox(1L)).thenReturn(false);
         when(accountRepository.findEligibleDemandDepositAccounts(1L)).thenReturn(List.of(parent));
 
         // when & then: 가입 가능한 계좌를 반환한다.
@@ -100,7 +100,7 @@ class CoinBoxServiceTest {
     void rejectsEligibleAccountQueryWhenCoinBoxAlreadyExists() {
         // given: 고객에게 CLOSED가 아닌 저금통이 있다.
         when(customerRepository.findById(1L)).thenReturn(Optional.of(Customer.create(1L)));
-        when(accountRepository.countNonClosedCoinBoxes(1L)).thenReturn(1L);
+        when(accountRepository.existsNonClosedCoinBox(1L)).thenReturn(true);
 
         // when & then: 중복 가입 오류를 반환한다.
         assertBusinessException(() -> coinBoxService.findEligibleAccounts(1L), ErrorCode.COINBOX_ALREADY_EXISTS);
@@ -123,7 +123,7 @@ class CoinBoxServiceTest {
 
         // and: 정상 고객에게 가입 가능한 입출금계좌가 없으면 전용 오류를 반환한다.
         when(customerRepository.findById(4L)).thenReturn(Optional.of(Customer.create(4L)));
-        when(accountRepository.countNonClosedCoinBoxes(4L)).thenReturn(0L);
+        when(accountRepository.existsNonClosedCoinBox(4L)).thenReturn(false);
         when(accountRepository.findEligibleDemandDepositAccounts(4L)).thenReturn(List.of());
         assertBusinessException(
                 () -> coinBoxService.findEligibleAccounts(4L),
@@ -139,7 +139,7 @@ class CoinBoxServiceTest {
         Account parent = parentAccount(10L, 1L, 100_000L);
         when(customerRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(customer));
         when(accountRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(parent));
-        when(accountRepository.countNonClosedCoinBoxes(1L)).thenReturn(0L);
+        when(accountRepository.existsNonClosedCoinBox(1L)).thenReturn(false);
         when(coinBoxPolicyQueryRepository.findEffectivePolicy(TODAY))
                 .thenReturn(Optional.of(new CoinBoxPolicySnapshot(100L, 200L, 100_000L)));
         when(accountNumberGenerator.generate(ProductType.COINBOX)).thenReturn("3310000000011");
@@ -190,7 +190,7 @@ class CoinBoxServiceTest {
         // and: 고객과 계좌가 정상이어도 개설일에 적용할 정책이 없으면 개설하지 않는다.
         when(customerRepository.findByIdForUpdate(3L)).thenReturn(Optional.of(Customer.create(3L)));
         when(accountRepository.findByIdForUpdate(30L)).thenReturn(Optional.of(parentAccount(30L, 3L, 0L)));
-        when(accountRepository.countNonClosedCoinBoxes(3L)).thenReturn(0L);
+        when(accountRepository.existsNonClosedCoinBox(3L)).thenReturn(false);
         when(coinBoxPolicyQueryRepository.findEffectivePolicy(TODAY)).thenReturn(Optional.empty());
         assertBusinessException(() -> coinBoxService.openCoinBox(3L, 30L), ErrorCode.COINBOX_POLICY_NOT_FOUND);
         verify(accountRepository, never()).save(any());
@@ -201,7 +201,7 @@ class CoinBoxServiceTest {
     void rejectsIneligibleParentAccountConditions() {
         // given: 정상 고객이며 이용 중인 저금통은 없다.
         when(customerRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(Customer.create(1L)));
-        when(accountRepository.countNonClosedCoinBoxes(1L)).thenReturn(0L);
+        when(accountRepository.existsNonClosedCoinBox(1L)).thenReturn(false);
 
         // when & then: 입출금통장이 아닌 계좌는 근거계좌로 사용할 수 없다.
         Account meetingAccount = Account.create(
@@ -315,7 +315,11 @@ class CoinBoxServiceTest {
         CoinBox coinBox = CoinBox.create(30L, 11L, TODAY);
         AccountContract contract = AccountContract.create(40L, 11L, 100L, TODAY);
         prepareTerminationMocks(parent, coinBoxAccount, coinBox, contract);
-        when(internalTransferService.transferAll(eq(11L), eq(10L), any(TransferLedgerSpec.class)))
+        when(internalTransferService.transferAllLocked(
+                eq(coinBoxAccount),
+                eq(parent),
+                any(TransferLedgerSpec.class)
+        ))
                 .thenAnswer(invocation -> {
                     coinBoxAccount.debit(4_360L);
                     parent.credit(4_360L);
@@ -351,7 +355,7 @@ class CoinBoxServiceTest {
         // then: 이체 없이 종료 상태만 반영된다.
         assertThat(result.transferredAmount()).isZero();
         assertThat(result.account().getAccountStatus()).isEqualTo(AccountStatus.CLOSED);
-        verify(internalTransferService, never()).transferAll(any(), any(), any());
+        verify(internalTransferService, never()).transferAllLocked(any(), any(), any());
     }
 
     @Test
@@ -369,7 +373,7 @@ class CoinBoxServiceTest {
                 ErrorCode.COINBOX_INVALID_STATE
         );
         verify(accountRepository, never()).findAllByIdForUpdateOrderByAccountId(any());
-        verify(internalTransferService, never()).transferAll(any(), any(), any());
+        verify(internalTransferService, never()).transferAllLocked(any(), any(), any());
     }
 
     private void prepareTerminationMocks(
