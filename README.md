@@ -33,7 +33,7 @@ Swagger/OpenAPI 명세와 자동화 테스트도 함께 제공합니다.
 - 한 고객에게 이용 중인 저금통이 동시에 두 개 생성되지 않도록 고객 행을 잠갔습니다.
 - 한 번의 이체를 금융거래 한 건과 출금·입금 원장 두 건으로 추적할 수 있게 했습니다.
 - 여러 계좌의 잠금 순서를 `account_id` 오름차순으로 통일해 교착 가능성을 낮췄습니다.
-- 비우기·해지·동전모으기의 잔액, 금융거래와 원장을 하나의 트랜잭션으로 반영했습니다.
+- 비우기·동전모으기·해지의 잔액, 금융거래와 원장을 하나의 트랜잭션으로 반영했습니다.
 - 같은 저금통의 같은 실행일 동전모으기가 한 번만 처리되도록 복합 UK를 적용했습니다.
 - 테스트가 개발자의 로컬 MySQL 상태에 의존하지 않도록 MySQL Testcontainers를 사용했습니다.
 
@@ -48,6 +48,62 @@ Swagger/OpenAPI 명세와 자동화 테스트도 함께 제공합니다.
 | Test        | JUnit 5, AssertJ, Spring Test, Testcontainers  |
 | Quality     | JaCoCo, Swagger/OpenAPI                        |
 | Build       | Gradle Wrapper                                 |
+
+### 2.1 프로젝트 구조
+
+채점에 필요한 문서, 핵심 도메인 코드, 테스트와 실행 설정을 중심으로 정리했습니다.
+
+```text
+coinbox
+├── docs
+│   ├── 01_ERD.md                 # ERD, 테이블·컬럼, 관계와 Enum 정의
+│   ├── 02_SEQUENCE_DIAGRAM.md    # 신규가입·비우기·동전모으기·해지 시퀀스와 COMMENT
+│   ├── 03_DATA_FLOW.md           # 프로세스 중요 단계별 Before·After 예시 데이터
+│   ├── 04_CLASS_DIAGRAM.md       # 프로세스 구성 클래스의 책임과 관계
+│   └── 05_API.md                 # API 계약, 입력 검증과 공통 예외 처리
+├── src
+│   ├── main
+│   │   ├── java/com/kakaobank/coinbox
+│   │   │   ├── CoinboxApplication.java
+│   │   │   ├── account                  # 계좌 조회, 계좌번호 채번, 테스트 잔고 조정 API
+│   │   │   ├── accountcontract          # 계좌 계약과 계약 상태
+│   │   │   ├── accountdailybalance      # 일별 최종 잔고 Entity와 배치 처리
+│   │   │   ├── accountentry             # 계좌별 입금·출금 원장
+│   │   │   ├── coinbox                  # 저금통 가입·비우기·해지 핵심 업무
+│   │   │   ├── coinboxpolicy            # 저금통 최대 보유 한도 정책
+│   │   │   ├── coinsavingexecution      # 동전모으기 실행 이력, 서비스와 Chunk 배치
+│   │   │   ├── customer                 # 고객과 고객 상태
+│   │   │   ├── financialtransaction     # 금융거래와 공통 당행 이체 서비스
+│   │   │   ├── product                  # 상품군과 상품 버전
+│   │   │   └── common                   # 배치 실행, 예외, OpenAPI, Snowflake, 공통 Entity
+│   │   └── resources
+│   │       ├── application.yaml         # 애플리케이션·DB·Batch·Swagger 설정
+│   │       └── data.sql                 # Swagger와 배치 확인용 초기 샘플 데이터
+│   └── test
+│       ├── java/com/kakaobank/coinbox
+│       │   ├── account                  # 계좌 Controller·Service·Repository 테스트
+│       │   ├── accountcontract          # 계좌 계약 Repository 테스트
+│       │   ├── accountdailybalance      # 일별 최종 잔고 Repository 테스트
+│       │   ├── accountentry             # 계좌 원장 Repository 테스트
+│       │   ├── coinbox                  # 저금통 온라인 업무와 Swagger 예시 테스트
+│       │   ├── coinboxpolicy            # 저금통 정책 Repository 테스트
+│       │   ├── coinsavingexecution      # 동전모으기 배치·서비스·멱등성 테스트
+│       │   ├── customer                 # 고객 Repository 테스트
+│       │   ├── financialtransaction     # 당행 이체 단위·통합·Rollback 테스트
+│       │   ├── product                  # 상품·상품 버전 Repository 테스트
+│       │   ├── common                   # 배치 실행, OpenAPI, 예외와 Snowflake 테스트
+│       │   └── support                  # 공용 MySQL Testcontainer와 초기 데이터 검증
+│       └── resources
+│           └── application.properties   # 테스트 공통 설정
+├── gradle
+│   └── wrapper                          # 고정된 Gradle Wrapper 실행 환경
+├── docker-compose.yml                   # 로컬 MySQL 8.3 실행 구성
+├── build.gradle                         # 의존성, 테스트와 JaCoCo 설정
+├── settings.gradle
+├── gradlew
+├── gradlew.bat
+└── README.md
+```
 
 ## 3. 실행 방법
 
@@ -153,14 +209,15 @@ Liquibase 같은 스키마 마이그레이션 도구와 `validate` 전략이 필
 | `GET`    | `/api/v1/coinboxes/eligible-accounts`     | 저금통 가입 가능 근거계좌를 조회합니다. |
 | `POST`   | `/api/v1/coinboxes`                       | 저금통을 신규 개설합니다.               |
 | `POST`   | `/api/v1/coinboxes/{accountNumber}/empty` | 저금통 잔액 전액을 비웁니다.            |
-| `DELETE` | `/api/v1/coinboxes/{accountNumber}`       | 저금통을 해지합니다.                    |
 | `POST`   | `/internal/v1/batches/daily-balance`      | 일별 최종 잔액 배치를 수동 실행합니다.  |
 | `POST`   | `/internal/v1/batches/coin-saving`        | 동전모으기 배치를 수동 실행합니다.      |
+| `DELETE` | `/api/v1/coinboxes/{accountNumber}`       | 저금통을 해지합니다.                    |
 | `POST`   | `/internal/v1/test-account-deposits`      | 입출금계좌 잔고를 테스트용으로 증가시킵니다. |
+| `POST`   | `/internal/v1/test-account-withdrawals`   | 입출금계좌 잔고를 테스트용으로 감소시킵니다. |
 
 상세 요청·응답, 업무 검증과 오류 코드는 [API와 예외 처리](docs/05_API.md)에 정리했습니다.
 
-### 4.1 테스트 전용 계좌 잔고 충전
+### 4.1 테스트 전용 계좌 잔고 조정
 
 `POST /internal/v1/test-account-deposits`는 테스트 데이터 준비를 위해 입출금계좌의 `ACCOUNT.balance`만
 증가시킵니다. 계좌번호와 양수 금액을 요청하며 저금통 등 다른 상품 유형은 거부합니다. 실제 입금이나
@@ -171,6 +228,16 @@ Liquibase 같은 스키마 마이그레이션 도구와 `validate` 전략이 필
 {
   "accountNumber": "3333000000003",
   "amount": 10000
+}
+```
+
+`POST /internal/v1/test-account-withdrawals`도 같은 범위에서 입출금계좌 잔고만 감소시킵니다. 현재 잔고를
+초과하는 요청은 `INSUFFICIENT_ACCOUNT_BALANCE`로 거부하여 음수 잔고를 만들지 않습니다.
+
+```json
+{
+  "accountNumber": "3333000000004",
+  "amount": 5000
 }
 ```
 
@@ -217,7 +284,7 @@ JaCoCo 커버리지 기준까지 포함한 최종 검증은 다음 명령으로 
 ./gradlew clean check
 ```
 
-최종 검증에서 테스트 111개가 모두 통과했습니다. JaCoCo line `90.90%`, branch `70.24%`로 프로젝트
+최종 검증에서 테스트 118개가 모두 통과했습니다. JaCoCo line `90.99%`, branch `70.47%`로 프로젝트
 검증 기준인 line `80%`, branch `70%`를 통과했습니다.
 
 | 결과          | 위치                                             |
@@ -261,7 +328,7 @@ DBMS 동작에 영향을 받습니다. 이번 구현에서는 잠금 대상을 �
 ### 8.3 계좌 상태와 계약 상태의 책임이 달랐습니다
 
 일반 당행 이체에서는 두 `ACCOUNT`의 거래 가능 상태만 검증했습니다. 상품 계약과 상품 유형은
-비우기·해지·동전모으기처럼 업무 문맥을 판별하는 상위 Service에서 검증했습니다. 공통 이체 Service가
+비우기·동전모으기·해지처럼 업무 문맥을 판별하는 상위 Service에서 검증했습니다. 공통 이체 Service가
 모든 상품 규칙을 알게 하면 재사용성이 낮아지고, 반대로 업무 Service가 계좌 잠금과 원장 생성을
 반복하면 금융 정합성 규칙이 분산됩니다. 두 책임을 분리하면서 검증 위치가 더 명확해졌습니다.
 
@@ -283,7 +350,7 @@ Repository와 통합 테스트를 MySQL Testcontainers로 통일하면서 Native
 
 - ERD, 시퀀스 다이어그램과 예시 데이터의 단계 ID를 연결해 설계 판단과 데이터 변화를 추적할 수 있게
   했습니다.
-- `InternalTransferService`에 잔액 변경, 금융거래와 양방향 원장 생성을 집중해 비우기·해지·동전모으기가
+- `InternalTransferService`에 잔액 변경, 금융거래와 양방향 원장 생성을 집중해 비우기·동전모으기·해지가
   같은 금융 규칙을 사용하게 했습니다.
 - 고객 잠금, 계좌 ID 오름차순 잠금과 잠금 후 재검증을 동시성 테스트로 확인했습니다.
 - 상품 기준 정보, 계약 당시 버전과 고객별 동전모으기 설정을 분리해 각 데이터의 변경 이유를 명확하게

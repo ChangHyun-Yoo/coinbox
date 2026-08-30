@@ -271,107 +271,7 @@ sequenceDiagram
 
 ---
 
-## 5. 저금통 해지
-
-해지 요청은 고객 소유의 저금통인지 확인한 뒤 고객과 관련 계좌를 잠급니다. 남은 잔액이 있으면
-`COINBOX_TERMINATION` 거래로 연결 입출금계좌에 전액 이전하고, 잔액이 없으면 금융거래 없이
-계좌·계약·저금통 상태만 종료합니다.
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor Client
-    participant Controller as CoinBoxController
-    participant CoinBox as CoinBoxService
-    participant Transfer as InternalTransferService
-    participant DB as DB
-
-    Client->>Controller: 저금통 해지 요청(customerId, accountNumber)
-    Controller->>CoinBox: 저금통 해지(customerId, accountNumber)
-    Note over CoinBox,DB: 하나의 @Transactional 범위에서 처리<br/>InternalTransferService는 동일 트랜잭션에 참여
-
-    Note over CoinBox,DB: TERM-01. 고객 잠금 및 해지 대상 저금통 확인
-    CoinBox->>DB: 고객 조회 및 비관적 잠금(customerId)
-    DB-->>CoinBox: CUSTOMER 또는 조회 결과 없음
-    alt 고객이 존재하지 않음
-        CoinBox-->>Controller: BusinessException(CUSTOMER_NOT_FOUND)
-        Controller-->>Client: 고객 없음 오류 응답
-    else 고객이 존재함
-        CoinBox->>DB: 해지 대상 계좌 조회(customerId, accountNumber)
-        DB-->>CoinBox: ACCOUNT 또는 조회 결과 없음
-
-        alt 계좌가 없거나 product_type이 COINBOX가 아님
-            CoinBox-->>Controller: BusinessException(COINBOX_NOT_FOUND)
-            Controller-->>Client: 해지 불가 오류 응답
-        else 저금통 계좌임
-        CoinBox->>CoinBox: 연결 계좌를 parent_account_id로 결정
-        Note over CoinBox,DB: TERM-02. 계좌·저금통 설정·계약 잠금 후 최종 검증
-        CoinBox->>DB: 저금통·연결 ACCOUNT를 account_id 오름차순으로<br/>조회하고 비관적 잠금
-        DB-->>CoinBox: 잠긴 저금통·연결 계좌
-        CoinBox->>DB: COINBOX 조회 및 비관적 잠금<br/>(account_id = 저금통 accountId)
-        DB-->>CoinBox: 잠긴 저금통 설정
-        CoinBox->>DB: ACCOUNT_CONTRACT 조회 및 비관적 잠금<br/>(account_id = 저금통 accountId)
-        DB-->>CoinBox: 잠긴 계약 정보
-        CoinBox->>CoinBox: 소유 관계·연결 관계·상품 유형·<br/>계좌 및 계약 상태 재검증
-
-        alt ACCOUNT가 CLOSED이거나 계약이 TERMINATED임
-            CoinBox-->>Controller: BusinessException<br/>이미 해지된 저금통입니다.
-            Controller-->>Client: 이미 해지된 저금통입니다.
-        else 계약·저금통 정보가 유효하지 않음
-            CoinBox-->>Controller: BusinessException(저금통 데이터 상태 오류)
-            Controller-->>Client: 해지 불가 오류 응답
-        else 저금통 또는 연결 계좌가 ACTIVE가 아님
-            CoinBox-->>Controller: BusinessException(계좌 거래 불가)
-            Controller-->>Client: 해지 불가 오류 응답
-        else 해지 가능
-            Note over CoinBox,DB: TERM-03. 잠금 후 잔액으로 이전 여부 결정
-            alt 잠금 후 저금통 잔액이 0원보다 큼
-                Note over CoinBox,DB: TERM-04. 남은 잔액 전액을 연결 계좌로 이전
-                Note right of CoinBox: transaction_type = TRANSFER<br/>출금 원장 = WITHDRAWAL / COINBOX_TERMINATION / 저금통 해지<br/>입금 원장 = DEPOSIT / COINBOX / 저금통
-                CoinBox->>Transfer: 잠긴 계좌의 잔액 전액 당행 이체<br/>(저금통 accountId, parentAccountId, 거래·원장 코드)
-                Transfer->>Transfer: 두 계좌 유효성·잔액 재검증
-                Transfer->>DB: FINANCIAL_TRANSACTION 저장<br/>(TRANSFER, SUCCESS)
-                Transfer->>DB: 출금·입금 ACCOUNT_ENTRY 저장<br/>(transaction_datetime, entry_description 포함)
-                Transfer->>DB: 저금통 잔액 0원 및 연결 계좌 잔액 반영
-                DB-->>Transfer: 잔액 이전 완료
-                Transfer-->>CoinBox: 이체 결과
-            else 잠금 후 저금통 잔액이 0원
-                Note right of CoinBox: 금융거래와 계좌 원장을 생성하지 않음
-            end
-
-            Note over CoinBox,DB: TERM-05. 동전모으기·계약·저금통 계좌 종료
-            CoinBox->>DB: COINBOX 동전모으기 종료<br/>(coin_saving_enabled = false,<br/>coin_saving_start_date = null)
-            CoinBox->>DB: ACCOUNT_CONTRACT 종료<br/>(TERMINATED, contract_end_date = 해지 당일)
-            CoinBox->>DB: 저금통 ACCOUNT 종료<br/>(account_status = CLOSED)
-            DB-->>CoinBox: 해지 상태 반영 완료
-            Note over CoinBox,DB: TERM-06. 전체 트랜잭션 Commit 후 결과 반환
-            CoinBox-->>Controller: 저금통 해지 결과
-            Controller-->>Client: 저금통 해지 성공 응답
-        end
-        end
-    end
-```
-
-### 5.1 저금통 해지 상세 COMMENT
-
-아래 단계 ID는 [`03_DATA_FLOW.md`](./03_DATA_FLOW.md#4-저금통-해지)의 동일한 ID와 연결됩니다.
-
-| 단계 | 상세 COMMENT |
-|---|---|
-| `TERM-01` | 해지 트랜잭션은 `CUSTOMER` 잠금으로 시작합니다. 이 잠금은 같은 고객의 신규가입과 해지 요청을 직렬화하여 해지가 완료되기 전에 새 저금통이 개설되는 경쟁을 막습니다. 고객이 없으면 `CUSTOMER_NOT_FOUND`를 반환합니다. 고객이 존재하면 `customerId`와 하이픈 없는 `accountNumber`로 고객 소유 계좌를 조회하고 `product_type = COINBOX`인지 확인하며, 계좌가 없거나 저금통이 아니면 `COINBOX_NOT_FOUND`를 반환합니다. |
-| `TERM-02` | 저금통과 연결 입출금계좌를 `account_id` 오름차순으로 잠근 다음 `COINBOX`, 저금통의 `ACCOUNT_CONTRACT` 순서로 잠급니다. 잠금 후 고객 소유 관계, `parent_account_id` 연결 관계, 상품 유형, 두 계좌의 `ACTIVE` 상태, 계약의 `ACTIVE` 상태와 저금통 설정 존재 여부를 다시 검증합니다. 이미 `CLOSED` 또는 `TERMINATED`라면 일반 유효성 오류와 구분하여 `이미 해지된 저금통입니다.`를 반환합니다. |
-| `TERM-03` | 모든 관련 행을 잠근 뒤 읽은 저금통 잔액으로 자금 이전 여부를 결정합니다. 잔액이 0원이면 금융거래와 계좌 원장을 생성하지 않고 종료 상태 변경으로 이동합니다. 잔액이 있다면 그 전액을 해지 이체 금액으로 확정합니다. 이자 계산과 지급은 과제 범위에 포함하지 않습니다. |
-| `TERM-04` | 잔액이 있으면 이미 잠긴 두 계좌를 사용하는 공통 당행 이체 로직에 위임합니다. 거래 유형은 `TRANSFER`이고, 저금통 출금 원장은 `WITHDRAWAL / COINBOX_TERMINATION / 저금통 해지`, 연결 계좌 입금 원장은 `DEPOSIT / COINBOX / 저금통`으로 기록합니다. 금융거래 한 행과 계좌 원장 두 행을 생성하고 저금통 잔액을 0원으로 이전합니다. |
-| `TERM-05` | 잔액 이전 후 `COINBOX.coin_saving_enabled = false`, `coin_saving_start_date = null`로 자동저축을 중단합니다. 계약은 `TERMINATED`와 실제 해지일로 종료하고, 저금통 계좌는 잔액 0원인 `CLOSED` 상태로 변경합니다. 연결 입출금계좌는 해지 대상이 아니므로 `ACTIVE`를 유지합니다. |
-| `TERM-06` | 잔액 이전과 금융거래·원장 생성, 저금통 설정·계약·계좌 종료를 모두 하나의 트랜잭션으로 Commit합니다. 중간 작업 하나라도 실패하면 전부 Rollback하므로 잔액만 이전되고 저금통이 열려 있거나, 계좌만 닫히고 잔액이 남는 상태가 발생하지 않습니다. Commit 이후 같은 저금통으로 다시 요청하면 이미 해지된 저금통 예외를 반환합니다. |
-
-> **잠금 순서:** 해지는 `CUSTOMER` → 두 `ACCOUNT`의 ID 오름차순 → `COINBOX` →
-> `ACCOUNT_CONTRACT` 순서로 잠급니다. 다른 흐름에서도 공통으로 잠그는 여러 `ACCOUNT`는 항상 ID
-> 오름차순을 사용해 반대 방향 업무 사이의 교착 가능성을 낮춥니다.
-
----
-
-## 6. 일별 최종 잔액 배치
+## 5. 일별 최종 잔액 배치
 
 일별 잔액은 한 건씩 금융 업무를 처리하는 작업이 아니라 계좌 상태를 한 시점에 복제하는 작업입니다.
 따라서 청크형 Reader/Processor/Writer 대신 Spring Batch Tasklet에서 JPA Native Query로 대상을 읽고
@@ -423,9 +323,9 @@ sequenceDiagram
     end
 ```
 
-### 6.1 일별 최종 잔액 배치 상세 COMMENT
+### 5.1 일별 최종 잔액 배치 상세 COMMENT
 
-아래 단계 ID는 [`03_DATA_FLOW.md`](./03_DATA_FLOW.md#5-일별-최종-잔액-배치)의 동일한 ID와 연결됩니다.
+아래 단계 ID는 [`03_DATA_FLOW.md`](./03_DATA_FLOW.md#4-일별-최종-잔액-배치)의 동일한 ID와 연결됩니다.
 
 | 단계 | 상세 COMMENT |
 |---|---|
@@ -440,7 +340,7 @@ sequenceDiagram
 
 ---
 
-## 7. 동전모으기 배치
+## 6. 동전모으기 배치
 
 동전모으기는 후보 조회와 실제 금융 처리를 분리합니다. 후보는 잠금 없이 효율적으로 페이징하고,
 정합성은 저금통별 짧은 트랜잭션에서 계좌와 저금통을 잠근 뒤 재검증하여 보장합니다.
@@ -533,9 +433,9 @@ sequenceDiagram
     end
 ```
 
-### 7.1 동전모으기 배치 상세 COMMENT
+### 6.1 동전모으기 배치 상세 COMMENT
 
-아래 단계 ID는 [`03_DATA_FLOW.md`](./03_DATA_FLOW.md#6-동전모으기-배치)의 동일한 ID와 연결됩니다.
+아래 단계 ID는 [`03_DATA_FLOW.md`](./03_DATA_FLOW.md#5-동전모으기-배치)의 동일한 ID와 연결됩니다.
 
 | 단계 | 상세 COMMENT |
 |---|---|
@@ -550,3 +450,103 @@ sequenceDiagram
 
 > **멱등성 방어:** 후보 조회의 실행 이력 부재 조건은 조회량을 줄이는 1차 방어이며,
 > 잠금 후 재조회와 `UK(coinbox_id, execution_date)`가 실제 중복 이체를 막는 최종 방어입니다.
+
+---
+
+## 7. 저금통 해지
+
+해지 요청은 고객 소유의 저금통인지 확인한 뒤 고객과 관련 계좌를 잠급니다. 남은 잔액이 있으면
+`COINBOX_TERMINATION` 거래로 연결 입출금계좌에 전액 이전하고, 잔액이 없으면 금융거래 없이
+계좌·계약·저금통 상태만 종료합니다.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Client
+    participant Controller as CoinBoxController
+    participant CoinBox as CoinBoxService
+    participant Transfer as InternalTransferService
+    participant DB as DB
+
+    Client->>Controller: 저금통 해지 요청(customerId, accountNumber)
+    Controller->>CoinBox: 저금통 해지(customerId, accountNumber)
+    Note over CoinBox,DB: 하나의 @Transactional 범위에서 처리<br/>InternalTransferService는 동일 트랜잭션에 참여
+
+    Note over CoinBox,DB: TERM-01. 고객 잠금 및 해지 대상 저금통 확인
+    CoinBox->>DB: 고객 조회 및 비관적 잠금(customerId)
+    DB-->>CoinBox: CUSTOMER 또는 조회 결과 없음
+    alt 고객이 존재하지 않음
+        CoinBox-->>Controller: BusinessException(CUSTOMER_NOT_FOUND)
+        Controller-->>Client: 고객 없음 오류 응답
+    else 고객이 존재함
+        CoinBox->>DB: 해지 대상 계좌 조회(customerId, accountNumber)
+        DB-->>CoinBox: ACCOUNT 또는 조회 결과 없음
+
+        alt 계좌가 없거나 product_type이 COINBOX가 아님
+            CoinBox-->>Controller: BusinessException(COINBOX_NOT_FOUND)
+            Controller-->>Client: 해지 불가 오류 응답
+        else 저금통 계좌임
+        CoinBox->>CoinBox: 연결 계좌를 parent_account_id로 결정
+        Note over CoinBox,DB: TERM-02. 계좌·저금통 설정·계약 잠금 후 최종 검증
+        CoinBox->>DB: 저금통·연결 ACCOUNT를 account_id 오름차순으로<br/>조회하고 비관적 잠금
+        DB-->>CoinBox: 잠긴 저금통·연결 계좌
+        CoinBox->>DB: COINBOX 조회 및 비관적 잠금<br/>(account_id = 저금통 accountId)
+        DB-->>CoinBox: 잠긴 저금통 설정
+        CoinBox->>DB: ACCOUNT_CONTRACT 조회 및 비관적 잠금<br/>(account_id = 저금통 accountId)
+        DB-->>CoinBox: 잠긴 계약 정보
+        CoinBox->>CoinBox: 소유 관계·연결 관계·상품 유형·<br/>계좌 및 계약 상태 재검증
+
+        alt ACCOUNT가 CLOSED이거나 계약이 TERMINATED임
+            CoinBox-->>Controller: BusinessException<br/>이미 해지된 저금통입니다.
+            Controller-->>Client: 이미 해지된 저금통입니다.
+        else 계약·저금통 정보가 유효하지 않음
+            CoinBox-->>Controller: BusinessException(저금통 데이터 상태 오류)
+            Controller-->>Client: 해지 불가 오류 응답
+        else 저금통 또는 연결 계좌가 ACTIVE가 아님
+            CoinBox-->>Controller: BusinessException(계좌 거래 불가)
+            Controller-->>Client: 해지 불가 오류 응답
+        else 해지 가능
+            Note over CoinBox,DB: TERM-03. 잠금 후 잔액으로 이전 여부 결정
+            alt 잠금 후 저금통 잔액이 0원보다 큼
+                Note over CoinBox,DB: TERM-04. 남은 잔액 전액을 연결 계좌로 이전
+                Note right of CoinBox: transaction_type = TRANSFER<br/>출금 원장 = WITHDRAWAL / COINBOX_TERMINATION / 저금통 해지<br/>입금 원장 = DEPOSIT / COINBOX / 저금통
+                CoinBox->>Transfer: 잠긴 계좌의 잔액 전액 당행 이체<br/>(저금통 accountId, parentAccountId, 거래·원장 코드)
+                Transfer->>Transfer: 두 계좌 유효성·잔액 재검증
+                Transfer->>DB: FINANCIAL_TRANSACTION 저장<br/>(TRANSFER, SUCCESS)
+                Transfer->>DB: 출금·입금 ACCOUNT_ENTRY 저장<br/>(transaction_datetime, entry_description 포함)
+                Transfer->>DB: 저금통 잔액 0원 및 연결 계좌 잔액 반영
+                DB-->>Transfer: 잔액 이전 완료
+                Transfer-->>CoinBox: 이체 결과
+            else 잠금 후 저금통 잔액이 0원
+                Note right of CoinBox: 금융거래와 계좌 원장을 생성하지 않음
+            end
+
+            Note over CoinBox,DB: TERM-05. 동전모으기·계약·저금통 계좌 종료
+            CoinBox->>DB: COINBOX 동전모으기 종료<br/>(coin_saving_enabled = false,<br/>coin_saving_start_date = null)
+            CoinBox->>DB: ACCOUNT_CONTRACT 종료<br/>(TERMINATED, contract_end_date = 해지 당일)
+            CoinBox->>DB: 저금통 ACCOUNT 종료<br/>(account_status = CLOSED)
+            DB-->>CoinBox: 해지 상태 반영 완료
+            Note over CoinBox,DB: TERM-06. 전체 트랜잭션 Commit 후 결과 반환
+            CoinBox-->>Controller: 저금통 해지 결과
+            Controller-->>Client: 저금통 해지 성공 응답
+        end
+        end
+    end
+```
+
+### 7.1 저금통 해지 상세 COMMENT
+
+아래 단계 ID는 [`03_DATA_FLOW.md`](./03_DATA_FLOW.md#6-저금통-해지)의 동일한 ID와 연결됩니다.
+
+| 단계 | 상세 COMMENT |
+|---|---|
+| `TERM-01` | 해지 트랜잭션은 `CUSTOMER` 잠금으로 시작합니다. 이 잠금은 같은 고객의 신규가입과 해지 요청을 직렬화하여 해지가 완료되기 전에 새 저금통이 개설되는 경쟁을 막습니다. 고객이 없으면 `CUSTOMER_NOT_FOUND`를 반환합니다. 고객이 존재하면 `customerId`와 하이픈 없는 `accountNumber`로 고객 소유 계좌를 조회하고 `product_type = COINBOX`인지 확인하며, 계좌가 없거나 저금통이 아니면 `COINBOX_NOT_FOUND`를 반환합니다. |
+| `TERM-02` | 저금통과 연결 입출금계좌를 `account_id` 오름차순으로 잠근 다음 `COINBOX`, 저금통의 `ACCOUNT_CONTRACT` 순서로 잠급니다. 잠금 후 고객 소유 관계, `parent_account_id` 연결 관계, 상품 유형, 두 계좌의 `ACTIVE` 상태, 계약의 `ACTIVE` 상태와 저금통 설정 존재 여부를 다시 검증합니다. 이미 `CLOSED` 또는 `TERMINATED`라면 일반 유효성 오류와 구분하여 `이미 해지된 저금통입니다.`를 반환합니다. |
+| `TERM-03` | 모든 관련 행을 잠근 뒤 읽은 저금통 잔액으로 자금 이전 여부를 결정합니다. 잔액이 0원이면 금융거래와 계좌 원장을 생성하지 않고 종료 상태 변경으로 이동합니다. 잔액이 있다면 그 전액을 해지 이체 금액으로 확정합니다. 이자 계산과 지급은 과제 범위에 포함하지 않습니다. |
+| `TERM-04` | 잔액이 있으면 이미 잠긴 두 계좌를 사용하는 공통 당행 이체 로직에 위임합니다. 거래 유형은 `TRANSFER`이고, 저금통 출금 원장은 `WITHDRAWAL / COINBOX_TERMINATION / 저금통 해지`, 연결 계좌 입금 원장은 `DEPOSIT / COINBOX / 저금통`으로 기록합니다. 금융거래 한 행과 계좌 원장 두 행을 생성하고 저금통 잔액을 0원으로 이전합니다. |
+| `TERM-05` | 잔액 이전 후 `COINBOX.coin_saving_enabled = false`, `coin_saving_start_date = null`로 자동저축을 중단합니다. 계약은 `TERMINATED`와 실제 해지일로 종료하고, 저금통 계좌는 잔액 0원인 `CLOSED` 상태로 변경합니다. 연결 입출금계좌는 해지 대상이 아니므로 `ACTIVE`를 유지합니다. |
+| `TERM-06` | 잔액 이전과 금융거래·원장 생성, 저금통 설정·계약·계좌 종료를 모두 하나의 트랜잭션으로 Commit합니다. 중간 작업 하나라도 실패하면 전부 Rollback하므로 잔액만 이전되고 저금통이 열려 있거나, 계좌만 닫히고 잔액이 남는 상태가 발생하지 않습니다. Commit 이후 같은 저금통으로 다시 요청하면 이미 해지된 저금통 예외를 반환합니다. |
+
+> **잠금 순서:** 해지는 `CUSTOMER` → 두 `ACCOUNT`의 ID 오름차순 → `COINBOX` →
+> `ACCOUNT_CONTRACT` 순서로 잠급니다. 다른 흐름에서도 공통으로 잠그는 여러 `ACCOUNT`는 항상 ID
+> 오름차순을 사용해 반대 방향 업무 사이의 교착 가능성을 낮춥니다.

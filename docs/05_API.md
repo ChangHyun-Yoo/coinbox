@@ -28,7 +28,7 @@
 
 ### 1.1 Swagger/OpenAPI 사용 원칙
 
-- Springdoc은 이 문서에 정의된 온라인 API 다섯 경로, 수동 배치 실행 API 두 경로와 테스트 잔고 충전 API 한 경로를 OpenAPI 3.1
+- Springdoc은 이 문서에 정의된 온라인 API 다섯 경로, 수동 배치 실행 API 두 경로와 테스트 잔고 조정 API 두 경로를 OpenAPI 3.1
   명세로 생성합니다. 내부 Service와 Job 중지·재시작 기능은 노출하지 않습니다.
 - Swagger UI의 고객 온라인 Operation에는 필수 `X-Customer-Id` 헤더 입력이 표시됩니다. 이 헤더는 API
   Key나 실제 인증 수단이 아니라 인증·게이트웨이 계층이 검증 후 전달한다고 가정한 고객 식별자입니다.
@@ -215,47 +215,13 @@ X-Customer-Id: 700000000000000001
 
 ---
 
-## 5. 저금통 해지 API
-
-```http
-DELETE /api/v1/coinboxes/3310000000002
-X-Customer-Id: 700000000000000004
-```
-
-잔액이 있으면 `COINBOX_TERMINATION` 원장 코드로 연결 입출금계좌에 전액 이전한 뒤 저금통을 해지합니다.
-잔액이 0원이면 금융거래와 계좌 원장을 만들지 않고 해지 상태만 반영합니다.
-
-#### 성공 응답 — `200 OK`
-
-```json
-{
-  "accountId": "710000000000000007",
-  "accountNumber": "3310000000002",
-  "accountStatus": "CLOSED",
-  "contractStatus": "TERMINATED",
-  "transferredAmount": 35270,
-  "terminationDate": "2026-08-30"
-}
-```
-
-#### 주요 오류
-
-| 오류 코드 | 발생 조건 |
-|---|---|
-| `COINBOX_NOT_FOUND` | 인증 고객 소유의 저금통 계좌를 찾을 수 없거나 상품 유형이 저금통이 아님 |
-| `COINBOX_ALREADY_TERMINATED` | 계좌가 `CLOSED`이거나 계약이 `TERMINATED`인 저금통에 다시 해지를 요청함 |
-| `COINBOX_INVALID_STATE` | 계좌·계약·저금통 설정 또는 연결 관계가 올바른 데이터 구성을 충족하지 않음 |
-| `ACCOUNT_NOT_TRANSFERABLE` | 잔액 이전이 필요한데 저금통 또는 연결 입출금계좌가 정상 거래 상태가 아님 |
-
----
-
-## 6. 로컬 테스트 수동 실행 API
+## 5. 로컬 테스트 수동 실행 API
 
 배치 수동 실행 API는 서버가 정한 현재 날짜를 암묵적으로 사용하지 않고 `executionDate`를 필수로 받습니다.
 따라서 채점자와 개발자가 같은 업무 기준일을 반복해서 실행하고 결과를 확인할 수 있습니다. 자동
 스케줄러도 동일한 `BatchExecutionService`를 사용하므로 날짜 파라미터와 Job 처리 규칙은 같습니다.
 
-### 6.1 일별 최종 잔액 배치 실행
+### 5.1 일별 최종 잔액 배치 실행
 
 ```http
 POST /internal/v1/batches/daily-balance?executionDate=2026-08-30
@@ -263,7 +229,7 @@ POST /internal/v1/batches/daily-balance?executionDate=2026-08-30
 
 `executionDate`의 전날인 `2026-08-29`를 `balanceDate`로 사용하여 `dailyBalanceJob`을 실행합니다.
 
-### 6.2 동전모으기 배치 실행
+### 5.2 동전모으기 배치 실행
 
 ```http
 POST /internal/v1/batches/coin-saving?executionDate=2026-08-30
@@ -301,7 +267,7 @@ POST /internal/v1/batches/coin-saving?executionDate=2026-08-30
 | 제공 범위 | 신규 실행만 제공하며 Job 목록 조회, 중지, 실패 Job 재시작과 메타데이터 수정 API는 제공하지 않습니다. |
 | 접근 통제 | 현재 과제에는 인증·인가가 없으므로 로컬 검증 용도입니다. 운영 환경에서는 관리자 권한과 내부 접근 제어가 필요합니다. |
 
-### 6.3 테스트 전용 입출금계좌 잔고 충전
+### 5.3 테스트 전용 입출금계좌 잔고 충전
 
 ```http
 POST /internal/v1/test-account-deposits
@@ -329,6 +295,68 @@ Content-Type: application/json
 `DEMAND_DEPOSIT`인지 확인한 뒤 `ACCOUNT.balance = balance + amount` UPDATE만 실행합니다. 계좌 상태와
 계약은 확인하지 않으며 비관적 잠금도 사용하지 않습니다. 실제 금융 입금이나 이체가 아니므로
 `FINANCIAL_TRANSACTION`과 `ACCOUNT_ENTRY`는 생성하지 않습니다. 운영 환경에 노출해서는 안 됩니다.
+
+### 5.4 테스트 전용 입출금계좌 잔고 출금
+
+```http
+POST /internal/v1/test-account-withdrawals
+Content-Type: application/json
+```
+
+```json
+{
+  "accountNumber": "3333000000004",
+  "amount": 5000
+}
+```
+
+#### 성공 응답 — `200 OK`
+
+```json
+{
+  "accountNumber": "3333000000004",
+  "withdrawnAmount": 5000,
+  "balanceAfter": 181420
+}
+```
+
+이 API도 `DEMAND_DEPOSIT` 계좌의 `ACCOUNT.balance = balance - amount` UPDATE만 실행합니다. 잔고보다 큰
+금액은 `INSUFFICIENT_ACCOUNT_BALANCE`로 거부하여 음수 잔고를 만들지 않습니다. 계좌 상태·계약·잠금,
+`FINANCIAL_TRANSACTION`과 `ACCOUNT_ENTRY` 처리는 적용하지 않는 로컬 테스트 전용 기능입니다.
+
+---
+
+## 6. 저금통 해지 API
+
+```http
+DELETE /api/v1/coinboxes/3310000000002
+X-Customer-Id: 700000000000000004
+```
+
+잔액이 있으면 `COINBOX_TERMINATION` 원장 코드로 연결 입출금계좌에 전액 이전한 뒤 저금통을 해지합니다.
+잔액이 0원이면 금융거래와 계좌 원장을 만들지 않고 해지 상태만 반영합니다.
+
+#### 성공 응답 — `200 OK`
+
+```json
+{
+  "accountId": "710000000000000007",
+  "accountNumber": "3310000000002",
+  "accountStatus": "CLOSED",
+  "contractStatus": "TERMINATED",
+  "transferredAmount": 35270,
+  "terminationDate": "2026-08-30"
+}
+```
+
+#### 주요 오류
+
+| 오류 코드 | 발생 조건 |
+|---|---|
+| `COINBOX_NOT_FOUND` | 인증 고객 소유의 저금통 계좌를 찾을 수 없거나 상품 유형이 저금통이 아님 |
+| `COINBOX_ALREADY_TERMINATED` | 계좌가 `CLOSED`이거나 계약이 `TERMINATED`인 저금통에 다시 해지를 요청함 |
+| `COINBOX_INVALID_STATE` | 계좌·계약·저금통 설정 또는 연결 관계가 올바른 데이터 구성을 충족하지 않음 |
+| `ACCOUNT_NOT_TRANSFERABLE` | 잔액 이전이 필요한데 저금통 또는 연결 입출금계좌가 정상 거래 상태가 아님 |
 
 ---
 
@@ -362,6 +390,7 @@ Content-Type: application/json
 | `409 Conflict` | `ACCOUNT_NOT_ELIGIBLE` | 선택한 계좌는 저금통 가입 조건을 충족하지 않습니다. |
 | `409 Conflict` | `ACCOUNT_NOT_TRANSFERABLE` | 계좌 거래가 불가능한 상태입니다. |
 | `409 Conflict` | `TEST_BALANCE_DEPOSIT_NOT_ALLOWED` | 입출금계좌만 테스트 잔고를 증가시킬 수 있습니다. |
+| `409 Conflict` | `TEST_BALANCE_WITHDRAWAL_NOT_ALLOWED` | 입출금계좌만 테스트 잔고를 감소시킬 수 있습니다. |
 | `409 Conflict` | `INSUFFICIENT_ACCOUNT_BALANCE` | 계좌 잔액이 부족합니다. |
 | `404 Not Found` | `COINBOX_NOT_FOUND` | 유효한 저금통 계좌를 찾을 수 없습니다. |
 | `409 Conflict` | `COINBOX_ALREADY_EXISTS` | 이미 이용 중인 저금통이 있습니다. |
@@ -384,7 +413,7 @@ Content-Type: application/json
 | `parentAccountId` | 필수이며 Snowflake `Long`으로 변환 가능한 양의 정수 문자열 | `400 / INVALID_REQUEST` |
 | `accountNumber` | 필수이며 하이픈 없는 13자리 숫자 문자열 | `400 / INVALID_REQUEST` |
 | `executionDate` | 배치 수동 실행 시 필수이며 `yyyy-MM-dd`로 변환 가능한 날짜 | `400 / INVALID_REQUEST` |
-| 테스트 잔고 충전 `amount` | 필수이며 0보다 큰 원 단위 정수 | `400 / INVALID_REQUEST` |
+| 테스트 잔고 조정 `amount` | 필수이며 0보다 큰 원 단위 정수 | `400 / INVALID_REQUEST` |
 | JSON 본문 | 필수 필드 누락, 형식 오류와 알 수 없는 타입 값 검증 | `400 / INVALID_REQUEST` |
 | 인증 정보 | 인증되지 않은 요청은 보안 계층에서 차단 | `401 Unauthorized` |
 
@@ -426,11 +455,12 @@ flowchart LR
 | 가입 가능 계좌 조회 | 읽기 전용이므로 반복 호출해도 데이터를 변경하지 않습니다. |
 | 저금통 개설 | 고객 비관적 잠금과 고객당 이용 중인 저금통 검증으로 동시 중복 개설을 막습니다. 최초 요청 성공 후 반복 요청은 `COINBOX_ALREADY_EXISTS`가 됩니다. |
 | 저금통 비우기 | 최초 성공 후 저금통 잔액이 0원이므로 반복 요청은 `COINBOX_BALANCE_EMPTY`가 됩니다. 동일 요청에 같은 성공 응답을 재생하는 별도 Idempotency-Key는 현재 범위에서 다루지 않습니다. |
-| 저금통 해지 | 최초 성공 후 반복 요청은 `COINBOX_ALREADY_TERMINATED`가 됩니다. 사용자 요구에 따라 이미 해지된 요청을 성공으로 간주하지 않습니다. |
 | 일별 최종 잔액 수동 실행 | 같은 실행일을 다시 실행해도 `(account_id, balance_date)` 복합 UK를 기준으로 기존 스냅샷을 변경하지 않고 없는 행만 저장합니다. |
 | 동전모으기 수동 실행 | 같은 실행일을 다시 실행해도 잠금 후 실행 이력 재조회와 `UK(coinbox_id, execution_date)`가 중복 이체를 방지합니다. |
+| 저금통 해지 | 최초 성공 후 반복 요청은 `COINBOX_ALREADY_TERMINATED`가 됩니다. 사용자 요구에 따라 이미 해지된 요청을 성공으로 간주하지 않습니다. |
 | 테스트 전용 잔고 충전 | 멱등 요청이 아니며 같은 요청을 반복하면 요청 금액만큼 잔고가 매번 증가합니다. 테스트 데이터 준비에만 사용합니다. |
+| 테스트 전용 잔고 출금 | 멱등 요청이 아니며 같은 요청을 반복하면 요청 금액만큼 잔고가 매번 감소합니다. 잔고가 부족해지면 요청을 거부합니다. |
 
 저금통 온라인 변경 요청과 동전모으기의 최종 판단은 사전 조회 결과가 아니라 시퀀스 다이어그램에 정의된
 비관적 잠금 이후의 최신 데이터로 수행합니다. 일별 최종 잔액은 복합 UK와 중복 무시 저장으로 같은
-기준일의 재실행을 방어합니다. 테스트 전용 잔고 충전은 이 정합성 규칙의 적용 대상이 아닙니다.
+기준일의 재실행을 방어합니다. 테스트 전용 잔고 충전·출금은 이 정합성 규칙의 적용 대상이 아닙니다.

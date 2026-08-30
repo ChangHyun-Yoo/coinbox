@@ -33,6 +33,7 @@ springdoc:
     - /api/v1/**
     - /internal/v1/batches/**
     - /internal/v1/test-account-deposits
+    - /internal/v1/test-account-withdrawals
   api-docs:
     path: /v3/api-docs
   swagger-ui:

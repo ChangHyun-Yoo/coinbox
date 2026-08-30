@@ -46,6 +46,11 @@ public enum ErrorCode {
             "TEST_BALANCE_DEPOSIT_NOT_ALLOWED",
             "입출금계좌만 테스트 잔고를 증가시킬 수 있습니다."
     ),
+    TEST_BALANCE_WITHDRAWAL_NOT_ALLOWED(
+            HttpStatus.CONFLICT,
+            "TEST_BALANCE_WITHDRAWAL_NOT_ALLOWED",
+            "입출금계좌만 테스트 잔고를 감소시킬 수 있습니다."
+    ),
     INSUFFICIENT_ACCOUNT_BALANCE(
             HttpStatus.CONFLICT,
             "INSUFFICIENT_ACCOUNT_BALANCE",

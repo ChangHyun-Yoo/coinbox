@@ -77,5 +77,17 @@ class SwaggerExampleIntegrationTest {
                                 """))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.balanceAfter").value(135_670));
+
+        // and: 테스트 전용 잔고 출금은 별도 입출금계좌의 balance만 감소시킵니다.
+        mockMvc.perform(post("/internal/v1/test-account-withdrawals")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "accountNumber": "3333000000004",
+                                  "amount": 5000
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.balanceAfter").value(181_420));
     }
 }

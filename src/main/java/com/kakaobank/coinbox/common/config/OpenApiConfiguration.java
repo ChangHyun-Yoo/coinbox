@@ -25,7 +25,8 @@ import org.springframework.context.annotation.Configuration;
                 @Tag(name = "계좌", description = "고객의 현재 ACTIVE 계좌 조회 API"),
                 @Tag(name = "저금통", description = "저금통 가입 가능 조회·개설·비우기·해지 API"),
                 @Tag(name = "배치 수동 실행", description = "지정 업무일의 배치 Job을 즉시 시작하는 내부 API"),
-                @Tag(name = "테스트 잔고 충전", description = "로컬 테스트에서 지정 계좌의 잔고만 증가시키는 내부 API")
+                @Tag(name = "테스트 잔고 충전", description = "로컬 테스트에서 지정 계좌의 잔고만 증가시키는 내부 API"),
+                @Tag(name = "테스트 잔고 출금", description = "로컬 테스트에서 입출금계좌의 잔고만 감소시키는 내부 API")
         }
 )
 public class OpenApiConfiguration {

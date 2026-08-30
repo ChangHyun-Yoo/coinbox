@@ -48,6 +48,23 @@ public interface AccountRepository extends JpaRepository<Account, Long> {
     );
 
     /**
+     * 로컬 테스트를 위해 금융거래와 원장을 생성하지 않고 입출금계좌의 잔고만 감소시킨다.
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query(value = """
+            update account a
+            set a.balance = a.balance - :amount,
+                a.updated_datetime = current_timestamp
+            where a.account_number = :accountNumber
+              and a.product_type = 'DEMAND_DEPOSIT'
+              and a.balance >= :amount
+            """, nativeQuery = true)
+    int decreaseBalance(
+            @Param("accountNumber") String accountNumber,
+            @Param("amount") Long amount
+    );
+
+    /**
      * 이체에 참여하는 계좌를 ID 오름차순으로 잠가 반대 방향 이체 사이의 교착 가능성을 낮춘다.
      */
     @Query(value = """

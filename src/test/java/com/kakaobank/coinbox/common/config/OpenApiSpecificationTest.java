@@ -47,7 +47,7 @@ class OpenApiSpecificationTest {
                 .getResponse()
                 .getContentAsString();
 
-        // then: 온라인 다섯 개와 로컬 테스트용 수동 실행 세 개 경로만 공개합니다.
+        // then: 온라인 다섯 개와 로컬 테스트용 수동 실행 네 개 경로만 공개합니다.
         Map<String, Object> paths = readMap(specification, "$.paths");
         assertThat(paths.keySet()).containsExactlyInAnyOrder(
                 "/api/v1/accounts",
@@ -57,7 +57,8 @@ class OpenApiSpecificationTest {
                 "/api/v1/coinboxes/{accountNumber}",
                 "/internal/v1/batches/daily-balance",
                 "/internal/v1/batches/coin-saving",
-                "/internal/v1/test-account-deposits"
+                "/internal/v1/test-account-deposits",
+                "/internal/v1/test-account-withdrawals"
         );
 
         // and: 05_API.md에 정의된 정상·입력·업무·시스템 응답 상태를 빠짐없이 명시한다.
@@ -101,6 +102,12 @@ class OpenApiSpecificationTest {
         assertResponseCodes(
                 specification,
                 "/internal/v1/test-account-deposits",
+                "post",
+                "200", "400", "404", "409", "500"
+        );
+        assertResponseCodes(
+                specification,
+                "/internal/v1/test-account-withdrawals",
                 "post",
                 "200", "400", "404", "409", "500"
         );

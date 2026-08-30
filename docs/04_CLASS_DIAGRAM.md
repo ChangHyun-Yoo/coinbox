@@ -22,7 +22,251 @@
 
 ---
 
-## 2. 온라인 프로세스 클래스 다이어그램
+## 2. 배치 프로세스 클래스 다이어그램
+
+일별 잔액은 Tasklet 한 단계로 처리하고, 동전모으기는 잠금 없는 페이징 Reader와
+후보별 업무 트랜잭션을 수행하는 Writer·Service로 분리합니다.
+
+```mermaid
+classDiagram
+    direction LR
+
+    class BatchScheduler {
+        <<Scheduler>>
+        +launchDailyBalanceJob() void
+        +launchCoinSavingJob() void
+    }
+
+    class ManualBatchController {
+        <<Controller>>
+        +executeDailyBalance(LocalDate executionDate) ManualBatchExecutionResponse
+        +executeCoinSaving(LocalDate executionDate) ManualBatchExecutionResponse
+    }
+
+    class BatchExecutionService {
+        <<Service>>
+        +executeDailyBalance(LocalDate executionDate) BatchExecutionResult
+        +executeCoinSaving(LocalDate executionDate) BatchExecutionResult
+    }
+
+    class BatchExecutionResult {
+        <<ValueObject>>
+        +String jobExecutionId
+        +String jobName
+        +BatchStatus status
+        +LocalDate executionDate
+    }
+
+    class ManualBatchExecutionResponse {
+        <<Response>>
+        +String jobExecutionId
+        +String jobName
+        +BatchStatus status
+        +LocalDate executionDate
+    }
+
+    class DailyBalanceJobConfig {
+        <<BatchConfiguration>>
+        +dailyBalanceJob() Job
+        +dailyBalanceStep() Step
+    }
+
+    class DailyBalanceTasklet {
+        <<Tasklet>>
+        +execute(StepContribution contribution, ChunkContext context) RepeatStatus
+    }
+
+    class DailyBalanceQueryRepository {
+        <<QueryRepository>>
+        +findSnapshotTargets() List~AccountBalanceSnapshot~
+    }
+
+    class DailyBalanceJdbcRepository {
+        <<JdbcRepository>>
+        +batchInsertIfAbsent(List~DailyBalanceInsertRow~ rows) int
+    }
+
+    class AccountBalanceSnapshot {
+        <<ReadModel>>
+        +Long accountId
+        +Long balance
+    }
+
+    class DailyBalanceInsertRow {
+        <<WriteModel>>
+        +Long accountDailyBalanceId
+        +Long accountId
+        +LocalDate balanceDate
+        +Long closingBalance
+        +LocalDateTime createdDatetime
+        +LocalDateTime updatedDatetime
+    }
+
+    class AccountDailyBalance {
+        <<Entity>>
+        +Long accountDailyBalanceId
+        +Long accountId
+        +LocalDate balanceDate
+        +Long closingBalance
+    }
+
+    class CoinSavingJobConfig {
+        <<BatchConfiguration>>
+        +coinSavingJob() Job
+        +coinSavingStep() Step
+        +coinSavingReader() JdbcPagingItemReader~CoinSavingCandidate~
+    }
+
+    class JdbcPagingItemReader~CoinSavingCandidate~ {
+        <<SpringBatchReader>>
+        +read() CoinSavingCandidate
+    }
+
+    class CoinSavingItemWriter {
+        <<ItemWriter>>
+        +write(Chunk~CoinSavingCandidate~ candidates) void
+    }
+
+    class CoinSavingCandidate {
+        <<ReadModel>>
+        +Long coinBoxId
+        +Long coinBoxAccountId
+        +Long parentAccountId
+        +Long previousClosingBalance
+        +LocalDate executionDate
+    }
+
+    class CoinSavingService {
+        <<Service>>
+        +execute(CoinSavingCandidate candidate) CoinSavingResult
+        -saveSkipped(Long coinBoxId, LocalDate executionDate, CoinSavingReasonCode reasonCode) CoinSavingResult
+        -validateRelationships(CoinSavingCandidate candidate, Account parent, Account coinBox, CoinBox setting) void
+    }
+
+    class CoinSavingAmountCalculator {
+        <<DomainService>>
+        +calculate(Long previousClosingBalance, Long currentSourceBalance, Long currentCoinBoxBalance, Long maxAmount) CoinSavingCalculation
+    }
+
+    class CoinSavingCalculation {
+        <<ValueObject>>
+        +boolean transferable
+        +Long savingAmount
+        +CoinSavingReasonCode reasonCode
+    }
+
+    class CoinSavingExecutionRepository {
+        <<Repository>>
+        +existsByCoinBoxIdAndExecutionDate(Long coinBoxId, LocalDate executionDate) boolean
+        +save(CoinSavingExecution execution) CoinSavingExecution
+    }
+
+    class CoinSavingExecution {
+        <<Entity>>
+        +Long executionId
+        +Long coinBoxId
+        +Long transactionId
+        +LocalDate executionDate
+        +Long savingAmount
+        +CoinSavingExecutionStatus executionStatus
+        +CoinSavingReasonCode reasonCode
+    }
+
+    class AccountRepository {
+        <<Repository>>
+        +findAllByIdForUpdateOrderByAccountId(List~Long~ accountIds) List~Account~
+    }
+
+    class CoinBoxRepository {
+        <<Repository>>
+        +findByAccountIdForUpdate(Long accountId) Optional~CoinBox~
+    }
+
+    class AccountContractRepository {
+        <<Repository>>
+        +findLatestByAccountIdForUpdate(Long accountId) Optional~AccountContract~
+    }
+
+    class CoinBoxPolicyQueryRepository {
+        <<QueryRepository>>
+        +findByProductVersionId(Long productVersionId) Optional~CoinBoxPolicySnapshot~
+    }
+
+    class InternalTransferService {
+        <<SharedService>>
+        +transfer(Long sourceId, Long targetId, Long amount, TransferLedgerSpec ledgerSpec) TransferResult
+    }
+
+    class Snowflake {
+        <<Infrastructure>>
+        +nextId() Long
+    }
+
+    ManualBatchController --> BatchExecutionService
+    ManualBatchController ..> ManualBatchExecutionResponse
+    BatchScheduler --> BatchExecutionService
+    BatchExecutionService --> DailyBalanceJobConfig
+    BatchExecutionService --> CoinSavingJobConfig
+    BatchExecutionService ..> BatchExecutionResult
+
+    DailyBalanceJobConfig --> DailyBalanceTasklet
+    DailyBalanceTasklet --> DailyBalanceQueryRepository
+    DailyBalanceTasklet --> DailyBalanceJdbcRepository
+    DailyBalanceTasklet --> Snowflake
+    DailyBalanceTasklet ..> DailyBalanceInsertRow
+    DailyBalanceQueryRepository ..> AccountBalanceSnapshot
+    DailyBalanceJdbcRepository ..> DailyBalanceInsertRow
+
+    CoinSavingJobConfig --> JdbcPagingItemReader~CoinSavingCandidate~
+    CoinSavingJobConfig --> CoinSavingItemWriter
+    JdbcPagingItemReader~CoinSavingCandidate~ ..> CoinSavingCandidate
+    CoinSavingItemWriter --> CoinSavingService
+    CoinSavingItemWriter ..> CoinSavingCandidate
+
+    CoinSavingService --> AccountRepository
+    CoinSavingService --> CoinBoxRepository
+    CoinSavingService --> AccountContractRepository
+    CoinSavingService --> CoinBoxPolicyQueryRepository
+    CoinSavingService --> CoinSavingExecutionRepository
+    CoinSavingService --> CoinSavingAmountCalculator
+    CoinSavingService --> InternalTransferService
+    CoinSavingService --> Snowflake
+    CoinSavingAmountCalculator ..> CoinSavingCalculation
+    CoinSavingExecutionRepository ..> CoinSavingExecution
+```
+
+### 2.1 배치 클래스 책임
+
+| 클래스 | 핵심 책임 | 관련 단계 |
+|---|---|---|
+| `ManualBatchController` | 필수 `executionDate`를 검증하고 일별 잔액 또는 동전모으기 Job의 수동 실행 결과를 반환합니다. | `BAL-01`, `CS-01` |
+| `BatchScheduler` | 서울 시간 기준 실행 일정에 맞춰 현재 날짜를 공통 실행 서비스에 전달합니다. | `BAL-01`, `CS-01` |
+| `BatchExecutionService` | 자동·수동 호출에 같은 Job 파라미터를 구성하고 실행별 식별자·상태를 반환합니다. Job과 Step의 자체 트랜잭션을 방해하지 않도록 외부 업무 트랜잭션을 시작하지 않습니다. | `BAL-01`, `CS-01` |
+| `DailyBalanceJobConfig` | 일별 잔액 Job과 단일 Tasklet Step을 구성합니다. | `BAL-*` |
+| `DailyBalanceTasklet` | 기준일 계산 결과를 받아 대상 조회, Snowflake ID 생성과 일괄 저장을 조정합니다. | `BAL-02~05` |
+| `DailyBalanceQueryRepository` | JPA Native Query로 `ACTIVE`, `RESTRICTED` 계좌의 잔액을 잠금 없이 ID 순서로 조회합니다. | `BAL-02` |
+| `DailyBalanceJdbcRepository` | 복합 UK를 기준으로 기존 스냅샷은 보존하고 신규 스냅샷만 JDBC 일괄 저장합니다. | `BAL-04` |
+| `CoinSavingJobConfig` | `JdbcPagingItemReader`와 `CoinSavingItemWriter`로 Chunk Step을 구성하며 기본 페이지는 1,000건, 청크는 1건으로 설정합니다. | `CS-01~02` |
+| `JdbcPagingItemReader<CoinSavingCandidate>` | `coinbox_id` 오름차순으로 잠금 없는 후보 조회를 수행하고 전일 잔액을 후보에 포함합니다. | `CS-02` |
+| `CoinSavingItemWriter` | 후보를 순회하며 저금통별 업무 서비스를 호출합니다. 업무 조회나 금액 계산은 수행하지 않습니다. | `CS-03~08` |
+| `CoinSavingService` | 잠금, 상태·계약·정책·실행 이력 재검증과 성공·건너뜀 실행 이력 저장을 조정합니다. | `CS-03~08` |
+| `CoinSavingAmountCalculator` | DB 접근 없이 전일 잔돈, 실행 시점 잔액과 한도로 실제 저축액 또는 건너뜀 사유를 계산합니다. | `CS-05` |
+| `CoinSavingExecutionRepository` | 실행 이력 재확인과 `SUCCESS`, `SKIPPED` 결과 저장을 담당합니다. | `CS-04`, `CS-06~07` |
+| `InternalTransferService` | 온라인 프로세스와 같은 계좌 잠금·거래·원장·잔액 처리 규칙을 재사용합니다. | `CS-06` |
+
+### 2.2 배치 트랜잭션 경계
+
+| 처리 | 트랜잭션 범위 |
+|---|---|
+| 자동·수동 Job 시작 | `BatchExecutionService`는 외부 트랜잭션 없이 Job을 시작하고 각 Job·Step이 자체 트랜잭션 경계를 관리합니다. |
+| 일별 최종 잔액 | Tasklet의 대상 조회부터 `ACCOUNT_DAILY_BALANCE` 일괄 저장까지 하나의 Step 트랜잭션 |
+| 동전모으기 후보 조회 | 비관적 잠금이 없는 페이징 조회. 후보를 확정하는 트랜잭션이 아닙니다. |
+| 동전모으기 후보 1건 | 청크 크기 1을 기준으로 계좌·설정·계약 잠금부터 `SUCCESS` 또는 `SKIPPED` 실행 이력 저장까지 독립 트랜잭션 |
+| 동전모으기 시스템 오류 | 해당 후보의 업무 변경 전체 Rollback 후 Step 실패. 자동 Retry·Skip과 실패 이력 저장은 현재 범위에서 제외 |
+
+---
+
+## 3. 온라인 프로세스 클래스 다이어그램
 
 계좌 목록은 `AccountQueryService`가 읽기 모델을 계층형 응답으로 조립합니다. 신규가입, 비우기와 해지는
 `CoinBoxService`가 저금통 고유 규칙을 조정하고 실제 계좌 간 자금 이동은 `InternalTransferService`에 위임합니다.
@@ -354,7 +598,7 @@ classDiagram
     AccountEntry ..> FinancialTransaction : transactionId
 ```
 
-### 2.1 온라인 클래스 책임
+### 3.1 온라인 클래스 책임
 
 | 클래스 | 핵심 책임 | 관련 프로세스 |
 |---|---|---|
@@ -365,16 +609,16 @@ classDiagram
 | `CoinBoxService` | 저금통 고유 가입 조건, 고객당 1개 제약, 상품 정책 선택, 연결 관계와 해지 상태를 검증하고 전체 흐름을 조정합니다. | `JOIN-*`, `EMPTY-01~02`, `TERM-*` |
 | `AccountNumberGenerator` | 상품별 4자리 prefix와 9자리 난수로 13자리 계좌번호 후보를 만들고 기존 번호와 충돌하면 재채번합니다. DB 유니크 제약이 동시 요청의 최종 중복을 차단합니다. | `JOIN-05` |
 | `InternalTransferService` | 계좌 ID 오름차순 잠금, 계좌 상태와 잔액 검증, 금융거래·원장·잔액의 원자적 반영을 담당합니다. | `EMPTY-03~05`, `TERM-04`, `CS-06` |
-| `TransferLedgerSpec` | 동일한 이체 로직에서 비우기·해지·동전모으기의 원장 코드와 통장 적요를 다르게 전달합니다. | 비우기, 해지, 동전모으기 |
+| `TransferLedgerSpec` | 동일한 이체 로직에서 비우기·동전모으기·해지의 원장 코드와 통장 적요를 다르게 전달합니다. | 비우기, 동전모으기, 해지 |
 | `CustomerRepository` | 고객 잠금으로 동일 고객의 가입·해지 경쟁을 직렬화합니다. | `JOIN-03`, `TERM-01` |
 | `AccountRepository` | 가입 가능 계좌 조회, 고객 소유 계좌 조회와 계좌 ID 오름차순 잠금 조회를 담당합니다. | 모든 온라인 프로세스 |
 | `CoinBoxPolicyQueryRepository` | JPA Native Query로 `PRODUCT`, `PRODUCT_VERSION`, `COINBOX_POLICY`를 조인하고 읽기 모델로 반환하여 Service의 조인 세부사항을 숨깁니다. | `JOIN-04`, `CS-04` |
 | `AccountContractRepository` | 계약 생성 및 해지 시 활성 계약 잠금·종료를 담당합니다. | `JOIN-05`, `TERM-02·05` |
 | `CoinBoxRepository` | 저금통 설정 생성 및 동전모으기 설정 잠금·종료를 담당합니다. | `JOIN-05`, `TERM-02·05` |
-| `FinancialTransactionRepository` | 하나의 자금 이동을 나타내는 금융거래 헤더를 저장합니다. | 비우기, 해지, 동전모으기 |
-| `AccountEntryRepository` | 출금·입금 계좌별 원장 두 건을 저장합니다. | 비우기, 해지, 동전모으기 |
+| `FinancialTransactionRepository` | 하나의 자금 이동을 나타내는 금융거래 헤더를 저장합니다. | 비우기, 동전모으기, 해지 |
+| `AccountEntryRepository` | 출금·입금 계좌별 원장 두 건을 저장합니다. | 비우기, 동전모으기, 해지 |
 
-### 2.2 온라인 트랜잭션 경계
+### 3.2 온라인 트랜잭션 경계
 
 | Service 메서드 | 트랜잭션 범위 |
 |---|---|
@@ -383,250 +627,6 @@ classDiagram
 | `CoinBoxService.emptyCoinBox` | 저금통 검증부터 `InternalTransferService.transferAll`의 거래·원장·잔액 반영까지 |
 | `CoinBoxService.terminateCoinBox` | 고객·계좌·설정·계약 잠금, 필요 시 잔액 이전, 계좌·계약·설정 종료까지 |
 | `InternalTransferService` | 호출한 온라인 트랜잭션에 참여하며, 단독 이체 호출 시에도 동일한 원자성 경계를 제공합니다. |
-
----
-
-## 3. 배치 프로세스 클래스 다이어그램
-
-일별 잔액은 Tasklet 한 단계로 처리하고, 동전모으기는 잠금 없는 페이징 Reader와
-후보별 업무 트랜잭션을 수행하는 Writer·Service로 분리합니다.
-
-```mermaid
-classDiagram
-    direction LR
-
-    class BatchScheduler {
-        <<Scheduler>>
-        +launchDailyBalanceJob() void
-        +launchCoinSavingJob() void
-    }
-
-    class ManualBatchController {
-        <<Controller>>
-        +executeDailyBalance(LocalDate executionDate) ManualBatchExecutionResponse
-        +executeCoinSaving(LocalDate executionDate) ManualBatchExecutionResponse
-    }
-
-    class BatchExecutionService {
-        <<Service>>
-        +executeDailyBalance(LocalDate executionDate) BatchExecutionResult
-        +executeCoinSaving(LocalDate executionDate) BatchExecutionResult
-    }
-
-    class BatchExecutionResult {
-        <<ValueObject>>
-        +String jobExecutionId
-        +String jobName
-        +BatchStatus status
-        +LocalDate executionDate
-    }
-
-    class ManualBatchExecutionResponse {
-        <<Response>>
-        +String jobExecutionId
-        +String jobName
-        +BatchStatus status
-        +LocalDate executionDate
-    }
-
-    class DailyBalanceJobConfig {
-        <<BatchConfiguration>>
-        +dailyBalanceJob() Job
-        +dailyBalanceStep() Step
-    }
-
-    class DailyBalanceTasklet {
-        <<Tasklet>>
-        +execute(StepContribution contribution, ChunkContext context) RepeatStatus
-    }
-
-    class DailyBalanceQueryRepository {
-        <<QueryRepository>>
-        +findSnapshotTargets() List~AccountBalanceSnapshot~
-    }
-
-    class DailyBalanceJdbcRepository {
-        <<JdbcRepository>>
-        +batchInsertIfAbsent(List~DailyBalanceInsertRow~ rows) int
-    }
-
-    class AccountBalanceSnapshot {
-        <<ReadModel>>
-        +Long accountId
-        +Long balance
-    }
-
-    class DailyBalanceInsertRow {
-        <<WriteModel>>
-        +Long accountDailyBalanceId
-        +Long accountId
-        +LocalDate balanceDate
-        +Long closingBalance
-        +LocalDateTime createdDatetime
-        +LocalDateTime updatedDatetime
-    }
-
-    class AccountDailyBalance {
-        <<Entity>>
-        +Long accountDailyBalanceId
-        +Long accountId
-        +LocalDate balanceDate
-        +Long closingBalance
-    }
-
-    class CoinSavingJobConfig {
-        <<BatchConfiguration>>
-        +coinSavingJob() Job
-        +coinSavingStep() Step
-        +coinSavingReader() JdbcPagingItemReader~CoinSavingCandidate~
-    }
-
-    class JdbcPagingItemReader~CoinSavingCandidate~ {
-        <<SpringBatchReader>>
-        +read() CoinSavingCandidate
-    }
-
-    class CoinSavingItemWriter {
-        <<ItemWriter>>
-        +write(Chunk~CoinSavingCandidate~ candidates) void
-    }
-
-    class CoinSavingCandidate {
-        <<ReadModel>>
-        +Long coinBoxId
-        +Long coinBoxAccountId
-        +Long parentAccountId
-        +Long previousClosingBalance
-        +LocalDate executionDate
-    }
-
-    class CoinSavingService {
-        <<Service>>
-        +execute(CoinSavingCandidate candidate) CoinSavingResult
-        -saveSkipped(Long coinBoxId, LocalDate executionDate, CoinSavingReasonCode reasonCode) CoinSavingResult
-        -validateRelationships(CoinSavingCandidate candidate, Account parent, Account coinBox, CoinBox setting) void
-    }
-
-    class CoinSavingAmountCalculator {
-        <<DomainService>>
-        +calculate(Long previousClosingBalance, Long currentSourceBalance, Long currentCoinBoxBalance, Long maxAmount) CoinSavingCalculation
-    }
-
-    class CoinSavingCalculation {
-        <<ValueObject>>
-        +boolean transferable
-        +Long savingAmount
-        +CoinSavingReasonCode reasonCode
-    }
-
-    class CoinSavingExecutionRepository {
-        <<Repository>>
-        +existsByCoinBoxIdAndExecutionDate(Long coinBoxId, LocalDate executionDate) boolean
-        +save(CoinSavingExecution execution) CoinSavingExecution
-    }
-
-    class CoinSavingExecution {
-        <<Entity>>
-        +Long executionId
-        +Long coinBoxId
-        +Long transactionId
-        +LocalDate executionDate
-        +Long savingAmount
-        +CoinSavingExecutionStatus executionStatus
-        +CoinSavingReasonCode reasonCode
-    }
-
-    class AccountRepository {
-        <<Repository>>
-        +findAllByIdForUpdateOrderByAccountId(List~Long~ accountIds) List~Account~
-    }
-
-    class CoinBoxRepository {
-        <<Repository>>
-        +findByAccountIdForUpdate(Long accountId) Optional~CoinBox~
-    }
-
-    class AccountContractRepository {
-        <<Repository>>
-        +findLatestByAccountIdForUpdate(Long accountId) Optional~AccountContract~
-    }
-
-    class CoinBoxPolicyQueryRepository {
-        <<QueryRepository>>
-        +findByProductVersionId(Long productVersionId) Optional~CoinBoxPolicySnapshot~
-    }
-
-    class InternalTransferService {
-        <<SharedService>>
-        +transfer(Long sourceId, Long targetId, Long amount, TransferLedgerSpec ledgerSpec) TransferResult
-    }
-
-    class Snowflake {
-        <<Infrastructure>>
-        +nextId() Long
-    }
-
-    ManualBatchController --> BatchExecutionService
-    ManualBatchController ..> ManualBatchExecutionResponse
-    BatchScheduler --> BatchExecutionService
-    BatchExecutionService --> DailyBalanceJobConfig
-    BatchExecutionService --> CoinSavingJobConfig
-    BatchExecutionService ..> BatchExecutionResult
-
-    DailyBalanceJobConfig --> DailyBalanceTasklet
-    DailyBalanceTasklet --> DailyBalanceQueryRepository
-    DailyBalanceTasklet --> DailyBalanceJdbcRepository
-    DailyBalanceTasklet --> Snowflake
-    DailyBalanceTasklet ..> DailyBalanceInsertRow
-    DailyBalanceQueryRepository ..> AccountBalanceSnapshot
-    DailyBalanceJdbcRepository ..> DailyBalanceInsertRow
-
-    CoinSavingJobConfig --> JdbcPagingItemReader~CoinSavingCandidate~
-    CoinSavingJobConfig --> CoinSavingItemWriter
-    JdbcPagingItemReader~CoinSavingCandidate~ ..> CoinSavingCandidate
-    CoinSavingItemWriter --> CoinSavingService
-    CoinSavingItemWriter ..> CoinSavingCandidate
-
-    CoinSavingService --> AccountRepository
-    CoinSavingService --> CoinBoxRepository
-    CoinSavingService --> AccountContractRepository
-    CoinSavingService --> CoinBoxPolicyQueryRepository
-    CoinSavingService --> CoinSavingExecutionRepository
-    CoinSavingService --> CoinSavingAmountCalculator
-    CoinSavingService --> InternalTransferService
-    CoinSavingService --> Snowflake
-    CoinSavingAmountCalculator ..> CoinSavingCalculation
-    CoinSavingExecutionRepository ..> CoinSavingExecution
-```
-
-### 3.1 배치 클래스 책임
-
-| 클래스 | 핵심 책임 | 관련 단계 |
-|---|---|---|
-| `ManualBatchController` | 필수 `executionDate`를 검증하고 일별 잔액 또는 동전모으기 Job의 수동 실행 결과를 반환합니다. | `BAL-01`, `CS-01` |
-| `BatchScheduler` | 서울 시간 기준 실행 일정에 맞춰 현재 날짜를 공통 실행 서비스에 전달합니다. | `BAL-01`, `CS-01` |
-| `BatchExecutionService` | 자동·수동 호출에 같은 Job 파라미터를 구성하고 실행별 식별자·상태를 반환합니다. Job과 Step의 자체 트랜잭션을 방해하지 않도록 외부 업무 트랜잭션을 시작하지 않습니다. | `BAL-01`, `CS-01` |
-| `DailyBalanceJobConfig` | 일별 잔액 Job과 단일 Tasklet Step을 구성합니다. | `BAL-*` |
-| `DailyBalanceTasklet` | 기준일 계산 결과를 받아 대상 조회, Snowflake ID 생성과 일괄 저장을 조정합니다. | `BAL-02~05` |
-| `DailyBalanceQueryRepository` | JPA Native Query로 `ACTIVE`, `RESTRICTED` 계좌의 잔액을 잠금 없이 ID 순서로 조회합니다. | `BAL-02` |
-| `DailyBalanceJdbcRepository` | 복합 UK를 기준으로 기존 스냅샷은 보존하고 신규 스냅샷만 JDBC 일괄 저장합니다. | `BAL-04` |
-| `CoinSavingJobConfig` | `JdbcPagingItemReader`와 `CoinSavingItemWriter`로 Chunk Step을 구성하며 기본 페이지는 1,000건, 청크는 1건으로 설정합니다. | `CS-01~02` |
-| `JdbcPagingItemReader<CoinSavingCandidate>` | `coinbox_id` 오름차순으로 잠금 없는 후보 조회를 수행하고 전일 잔액을 후보에 포함합니다. | `CS-02` |
-| `CoinSavingItemWriter` | 후보를 순회하며 저금통별 업무 서비스를 호출합니다. 업무 조회나 금액 계산은 수행하지 않습니다. | `CS-03~08` |
-| `CoinSavingService` | 잠금, 상태·계약·정책·실행 이력 재검증과 성공·건너뜀 실행 이력 저장을 조정합니다. | `CS-03~08` |
-| `CoinSavingAmountCalculator` | DB 접근 없이 전일 잔돈, 실행 시점 잔액과 한도로 실제 저축액 또는 건너뜀 사유를 계산합니다. | `CS-05` |
-| `CoinSavingExecutionRepository` | 실행 이력 재확인과 `SUCCESS`, `SKIPPED` 결과 저장을 담당합니다. | `CS-04`, `CS-06~07` |
-| `InternalTransferService` | 온라인 프로세스와 같은 계좌 잠금·거래·원장·잔액 처리 규칙을 재사용합니다. | `CS-06` |
-
-### 3.2 배치 트랜잭션 경계
-
-| 처리 | 트랜잭션 범위 |
-|---|---|
-| 자동·수동 Job 시작 | `BatchExecutionService`는 외부 트랜잭션 없이 Job을 시작하고 각 Job·Step이 자체 트랜잭션 경계를 관리합니다. |
-| 일별 최종 잔액 | Tasklet의 대상 조회부터 `ACCOUNT_DAILY_BALANCE` 일괄 저장까지 하나의 Step 트랜잭션 |
-| 동전모으기 후보 조회 | 비관적 잠금이 없는 페이징 조회. 후보를 확정하는 트랜잭션이 아닙니다. |
-| 동전모으기 후보 1건 | 청크 크기 1을 기준으로 계좌·설정·계약 잠금부터 `SUCCESS` 또는 `SKIPPED` 실행 이력 저장까지 독립 트랜잭션 |
-| 동전모으기 시스템 오류 | 해당 후보의 업무 변경 전체 Rollback 후 Step 실패. 자동 Retry·Skip과 실패 이력 저장은 현재 범위에서 제외 |
 
 ---
 
@@ -653,11 +653,11 @@ classDiagram
 | `JOIN-03~06` | `CoinBoxController` | `CoinBoxService` | `ACCOUNT`, `ACCOUNT_CONTRACT`, `COINBOX` 생성 |
 | `EMPTY-01~02` | `CoinBoxController` | `CoinBoxService` | 저금통 검증 및 이체 명령 구성 |
 | `EMPTY-03~05` | `CoinBoxService` | `InternalTransferService` | 금융거래·원장 생성 및 두 계좌 잔액 변경 |
-| `TERM-01~03` | `CoinBoxController` | `CoinBoxService` | 해지 대상 잠금·검증 및 잔액 분기 |
-| `TERM-04~06` | `CoinBoxService` | `InternalTransferService`, `CoinBoxService` | 필요 시 잔액 이전 후 계좌·계약·설정 종료 |
 | `BAL-01~05` | `BatchScheduler` 또는 `ManualBatchController` | `BatchExecutionService`, `DailyBalanceTasklet`, `DailyBalanceQueryRepository`, `DailyBalanceJdbcRepository` | `ACCOUNT_DAILY_BALANCE` 생성 |
 | `CS-01~02` | `BatchScheduler` 또는 `ManualBatchController` | `BatchExecutionService`, `CoinSavingJobConfig`, `JdbcPagingItemReader` | 잠금 없는 후보 스트림 |
 | `CS-03~08` | `CoinSavingItemWriter` | `CoinSavingService`, `CoinSavingAmountCalculator`, `InternalTransferService` | 성공 거래·원장·실행 이력 또는 건너뜀 실행 이력 |
+| `TERM-01~03` | `CoinBoxController` | `CoinBoxService` | 해지 대상 잠금·검증 및 잔액 분기 |
+| `TERM-04~06` | `CoinBoxService` | `InternalTransferService`, `CoinBoxService` | 필요 시 잔액 이전 후 계좌·계약·설정 종료 |
 
 ---
 
