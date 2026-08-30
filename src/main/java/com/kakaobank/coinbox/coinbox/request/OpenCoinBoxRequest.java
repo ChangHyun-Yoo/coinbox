@@ -12,7 +12,7 @@ public record OpenCoinBoxRequest(
         @Schema(
                 description = "저금통의 근거계좌로 선택한 입출금계좌 ID",
                 type = "string",
-                example = "710000000000000001",
+                example = "710000000000000005",
                 pattern = "^[1-9][0-9]*$"
         )
         @NotNull @Positive Long parentAccountId

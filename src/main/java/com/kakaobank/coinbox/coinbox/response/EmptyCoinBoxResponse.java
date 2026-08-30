@@ -8,13 +8,13 @@ import io.swagger.v3.oas.annotations.media.Schema;
  */
 @Schema(description = "저금통 비우기 결과")
 public record EmptyCoinBoxResponse(
-        @Schema(description = "생성된 당행 이체 거래 ID", example = "720000000000000001")
+        @Schema(description = "생성된 당행 이체 거래 ID", example = "770000000000000001")
         String transactionId,
-        @Schema(description = "근거계좌로 이전한 금액(원)", example = "4360", minimum = "1")
+        @Schema(description = "근거계좌로 이전한 금액(원)", example = "48730", minimum = "1")
         Long amount,
         @Schema(description = "비우기 후 저금통 잔액(원)", example = "0", minimum = "0")
         Long coinBoxBalanceAfter,
-        @Schema(description = "비우기 후 근거계좌 잔액(원)", example = "250030", minimum = "0")
+        @Schema(description = "비우기 후 근거계좌 잔액(원)", example = "302130", minimum = "0")
         Long parentAccountBalanceAfter
 ) {
 

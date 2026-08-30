@@ -13,7 +13,7 @@ public record ChildAccountResponse(
         String accountId,
         @Schema(description = "현재 상품 유형", example = "COINBOX")
         ProductType productType,
-        @Schema(description = "하이픈 없는 13자리 계좌번호", example = "3310019876543", pattern = "^[0-9]{13}$")
+        @Schema(description = "하이픈 없는 13자리 계좌번호", example = "3310000000001", pattern = "^[0-9]{13}$")
         String accountNumber,
         @Schema(description = "현재 잔액(원)", example = "48730", minimum = "0")
         Long balance,

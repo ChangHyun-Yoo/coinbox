@@ -42,7 +42,7 @@ insert into coinbox_policy (
     current_timestamp
 );
 
--- 1번 고객은 비우기·해지·동전모으기를, 2번 고객은 신규 가입을 시험하는 고객이다.
+-- Swagger 예시를 실행 순서와 무관하게 검증할 수 있도록 조회·개설·비우기·해지 고객을 분리한다.
 insert into customer (
     customer_id,
     customer_status,
@@ -50,7 +50,9 @@ insert into customer (
     updated_datetime
 ) values
     (700000000000000001, 'ACTIVE', current_timestamp, current_timestamp),
-    (700000000000000002, 'ACTIVE', current_timestamp, current_timestamp);
+    (700000000000000002, 'ACTIVE', current_timestamp, current_timestamp),
+    (700000000000000003, 'ACTIVE', current_timestamp, current_timestamp),
+    (700000000000000004, 'ACTIVE', current_timestamp, current_timestamp);
 
 -- 계좌번호는 하이픈 없는 13자리이며 상품별 접두어 규칙을 따른다.
 insert into account (
@@ -68,7 +70,10 @@ insert into account (
     (710000000000000001, 700000000000000001, 'DEMAND_DEPOSIT', '3333000000001', null, 253400, 'ACTIVE', '2026-01-02', current_timestamp, current_timestamp),
     (710000000000000002, 700000000000000001, 'COINBOX', '3310000000001', 710000000000000001, 48730, 'ACTIVE', '2026-08-27', current_timestamp, current_timestamp),
     (710000000000000003, 700000000000000001, 'DEMAND_DEPOSIT', '3333000000002', null, 30000, 'RESTRICTED', '2026-02-03', current_timestamp, current_timestamp),
-    (710000000000000004, 700000000000000002, 'DEMAND_DEPOSIT', '3333000000003', null, 125670, 'ACTIVE', '2026-03-04', current_timestamp, current_timestamp);
+    (710000000000000004, 700000000000000002, 'DEMAND_DEPOSIT', '3333000000003', null, 125670, 'ACTIVE', '2026-03-04', current_timestamp, current_timestamp),
+    (710000000000000005, 700000000000000003, 'DEMAND_DEPOSIT', '3333000000004', null, 186420, 'ACTIVE', '2026-04-05', current_timestamp, current_timestamp),
+    (710000000000000006, 700000000000000004, 'DEMAND_DEPOSIT', '3333000000005', null, 410000, 'ACTIVE', '2026-05-06', current_timestamp, current_timestamp),
+    (710000000000000007, 700000000000000004, 'COINBOX', '3310000000002', 710000000000000006, 35270, 'ACTIVE', '2026-08-28', current_timestamp, current_timestamp);
 
 -- 현재 계약은 9999-12-31까지 열어 두고 가입 당시의 상품 버전을 고정한다.
 insert into account_contract (
@@ -84,9 +89,12 @@ insert into account_contract (
     (720000000000000001, 710000000000000001, 731000000000000001, 'ACTIVE', '2026-01-02', '9999-12-31', current_timestamp, current_timestamp),
     (720000000000000002, 710000000000000002, 731000000000000002, 'ACTIVE', '2026-08-27', '9999-12-31', current_timestamp, current_timestamp),
     (720000000000000003, 710000000000000003, 731000000000000001, 'ACTIVE', '2026-02-03', '9999-12-31', current_timestamp, current_timestamp),
-    (720000000000000004, 710000000000000004, 731000000000000001, 'ACTIVE', '2026-03-04', '9999-12-31', current_timestamp, current_timestamp);
+    (720000000000000004, 710000000000000004, 731000000000000001, 'ACTIVE', '2026-03-04', '9999-12-31', current_timestamp, current_timestamp),
+    (720000000000000005, 710000000000000005, 731000000000000001, 'ACTIVE', '2026-04-05', '9999-12-31', current_timestamp, current_timestamp),
+    (720000000000000006, 710000000000000006, 731000000000000001, 'ACTIVE', '2026-05-06', '9999-12-31', current_timestamp, current_timestamp),
+    (720000000000000007, 710000000000000007, 731000000000000002, 'ACTIVE', '2026-08-28', '9999-12-31', current_timestamp, current_timestamp);
 
--- 1번 고객의 저금통은 동전모으기가 켜져 있고 시작일 다음 날부터 배치 대상이 된다.
+-- 1번 저금통은 비우기·배치용이고 4번 고객의 저금통은 해지 전용으로 분리한다.
 insert into coinbox (
     coinbox_id,
     account_id,
@@ -94,14 +102,23 @@ insert into coinbox (
     coin_saving_start_date,
     created_datetime,
     updated_datetime
-) values (
-    750000000000000001,
-    710000000000000002,
-    true,
-    '2026-08-27',
-    current_timestamp,
-    current_timestamp
-);
+) values
+    (
+        750000000000000001,
+        710000000000000002,
+        true,
+        '2026-08-27',
+        current_timestamp,
+        current_timestamp
+    ),
+    (
+        750000000000000002,
+        710000000000000007,
+        false,
+        null,
+        current_timestamp,
+        current_timestamp
+    );
 
 -- 전일 잔액은 실행일을 기준으로 계산해 샘플 데이터가 날짜와 무관하게 배치 후보가 되도록 한다.
 insert into account_daily_balance (

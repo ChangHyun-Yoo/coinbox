@@ -29,7 +29,10 @@ coinbox:
     node-id: 0
 
 springdoc:
-  paths-to-match: /api/v1/**
+  paths-to-match:
+    - /api/v1/**
+    - /internal/v1/batches/**
+    - /internal/v1/test-account-deposits
   api-docs:
     path: /v3/api-docs
   swagger-ui:

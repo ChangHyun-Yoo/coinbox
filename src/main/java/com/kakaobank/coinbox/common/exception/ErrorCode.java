@@ -41,6 +41,11 @@ public enum ErrorCode {
             "ACCOUNT_NOT_TRANSFERABLE",
             "계좌 거래가 불가능한 상태입니다."
     ),
+    TEST_BALANCE_DEPOSIT_NOT_ALLOWED(
+            HttpStatus.CONFLICT,
+            "TEST_BALANCE_DEPOSIT_NOT_ALLOWED",
+            "입출금계좌만 테스트 잔고를 증가시킬 수 있습니다."
+    ),
     INSUFFICIENT_ACCOUNT_BALANCE(
             HttpStatus.CONFLICT,
             "INSUFFICIENT_ACCOUNT_BALANCE",

@@ -20,6 +20,8 @@ HTTP·예외 설계는 [`05_API.md`](./05_API.md)를 참고합니다.
 | `CoinBoxService` | 가입 조건과 저금통 고유 규칙 검증, 개설·비우기·해지 흐름 조정 |
 | `InternalTransferService` | 계좌 잠금, 계좌 유효성 검증, 거래·원장·잔액의 원자적 반영 |
 | `BatchScheduler` | 정해진 시각에 일별 잔액 및 동전모으기 Job 실행 |
+| `ManualBatchController` | 운영자의 필수 실행일을 검증하고 수동 Job 실행 결과 반환 |
+| `BatchExecutionService` | 자동·수동 진입점에 같은 Job 파라미터와 실행 규칙 적용 |
 | `DailyBalanceTasklet` | 계좌 잔액 스냅샷 조회와 일괄 저장 |
 | `JdbcPagingItemReader` | 동전모으기 후보를 잠금 없이 페이징 조회 |
 | `CoinSavingItemWriter` / `CoinSavingService` | 후보별 독립 트랜잭션과 동전모으기 업무 규칙 처리 |
@@ -378,13 +380,22 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     autonumber
+    actor Operator
+    participant Controller as ManualBatchController
     participant Scheduler as BatchScheduler
+    participant Executor as BatchExecutionService
     participant Job as DailyBalanceJob
     participant Tasklet as DailyBalanceTasklet
     participant DB as DB
 
-    Note over Scheduler,Tasklet: BAL-01. 실행일로부터 전일 기준일 결정
-    Scheduler->>Job: 오전 12시 실행(executionDate)
+    Note over Operator,Tasklet: BAL-01. 자동 일정 또는 수동 요청의 실행일로부터 전일 기준일 결정
+    alt 운영자 수동 실행
+        Operator->>Controller: POST /internal/v1/batches/daily-balance<br/>?executionDate=yyyy-MM-dd
+        Controller->>Executor: executeDailyBalance(executionDate)
+    else 정기 스케줄 실행
+        Scheduler->>Executor: 매일 오전 12시 실행(executionDate)
+    end
+    Executor->>Job: Job 시작(executionDate, balanceDate)
     Job->>Tasklet: Step 실행(balanceDate = executionDate - 1일)
     Note over Tasklet,DB: 하나의 Step 트랜잭션에서 처리
 
@@ -404,7 +415,11 @@ sequenceDiagram
     else 저장 성공
         DB-->>Tasklet: 저장 건수
         Tasklet-->>Job: Step 완료
-        Job-->>Scheduler: Job 완료
+        Job-->>Executor: Job 완료
+    end
+    opt 운영자 수동 실행
+        Executor-->>Controller: jobExecutionId, jobName, status, executionDate
+        Controller-->>Operator: 200 OK
     end
 ```
 
@@ -414,7 +429,7 @@ sequenceDiagram
 
 | 단계 | 상세 COMMENT |
 |---|---|
-| `BAL-01` | Job은 매일 `00:00`에 실행하고 실행일의 전날을 `balanceDate`로 결정합니다. 예를 들어 `2026-08-28 00:00` 실행은 `balance_date = 2026-08-27`의 스냅샷을 생성합니다. 같은 기준일의 재실행도 동일한 `balanceDate`를 사용해야 중복 생성 방지 규칙이 작동합니다. |
+| `BAL-01` | Job은 매일 `00:00`에 자동 실행하거나 `/internal/v1/batches/daily-balance`에서 수동 실행합니다. 두 진입점 모두 `BatchExecutionService`를 사용하며 실행일의 전날을 `balanceDate`로 결정합니다. 예를 들어 `executionDate = 2026-08-28`이면 `balance_date = 2026-08-27`의 스냅샷을 생성합니다. 같은 기준일의 재실행도 동일한 `balanceDate`를 사용해야 중복 생성 방지 규칙이 작동합니다. |
 | `BAL-02` | `DailyBalanceQueryRepository`의 JPA Native Query로 `account_status`가 `ACTIVE` 또는 `RESTRICTED`인 계좌의 `account_id`, `balance`를 일반 일관 읽기로 조회합니다. `CLOSED` 계좌는 제외하며 계좌에 비관적 잠금을 걸지 않습니다. 조회 SQL이 시작된 시점의 일관된 결과를 전일 최종 잔액으로 정의하므로, 스냅샷 이후에 Commit된 거래는 다음 기준일 데이터에 반영됩니다. |
 | `BAL-03` | 모든 PK를 애플리케이션 Snowflake `Long`으로 생성한다는 원칙에 따라 조회된 계좌마다 `account_daily_balance_id`를 만듭니다. 이 제약 때문에 DB가 단독으로 행별 PK를 만들 수 없는 순수 `INSERT ... SELECT` 대신 애플리케이션에서 저장 행을 구성합니다. |
 | `BAL-04` | 생성한 ID, `account_id`, `balanceDate`, `closing_balance`와 감사 일시를 `DailyBalanceJdbcRepository`의 `JdbcTemplate.batchUpdate`로 일괄 저장합니다. `(account_id, balance_date)` 복합 UK가 동일 계좌·기준일의 중복을 막습니다. 재실행 시 이미 존재하는 행은 성공 당시 잔액을 보존하고, 없는 행만 추가하는 멱등 방식으로 처리합니다. MySQL 연결의 `useAffectedRows=true`로 실제 신규 저장 건수만 Step 쓰기 건수에 반영합니다. |
@@ -433,7 +448,10 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     autonumber
+    actor Operator
+    participant Controller as ManualBatchController
     participant Scheduler as BatchScheduler
+    participant Executor as BatchExecutionService
     participant Job as CoinSavingJob
     participant Reader as JdbcPagingItemReader
     participant Writer as CoinSavingItemWriter
@@ -441,8 +459,14 @@ sequenceDiagram
     participant Transfer as InternalTransferService
     participant DB as DB
 
-    Note over Scheduler,Reader: CS-01. 실행일과 전일 기준일로 Job 시작
-    Scheduler->>Job: 월~금 오전 10시 실행(executionDate)<br/>공휴일에도 실행
+    Note over Operator,Reader: CS-01. 자동 일정 또는 수동 요청의 실행일과 전일 기준일로 Job 시작
+    alt 운영자 수동 실행
+        Operator->>Controller: POST /internal/v1/batches/coin-saving<br/>?executionDate=yyyy-MM-dd
+        Controller->>Executor: executeCoinSaving(executionDate)
+    else 정기 스케줄 실행
+        Scheduler->>Executor: 월~금 오전 10시 실행(executionDate)<br/>공휴일에도 실행
+    end
+    Executor->>Job: Job 시작(executionDate, previousDate)
     Job->>Reader: Step 시작(executionDate, previousDate)
 
     Note over Reader,DB: CS-02. 잠금 없이 coinbox_id 기준 후보 페이징
@@ -501,7 +525,11 @@ sequenceDiagram
         Writer-->>Job: Step 실패
     else 모든 후보 처리 완료
         Writer-->>Job: Step 완료
-        Job-->>Scheduler: Job 완료
+        Job-->>Executor: Job 완료
+    end
+    opt 운영자 수동 실행
+        Executor-->>Controller: jobExecutionId, jobName, status, executionDate
+        Controller-->>Operator: 200 OK
     end
 ```
 
@@ -511,7 +539,7 @@ sequenceDiagram
 
 | 단계 | 상세 COMMENT |
 |---|---|
-| `CS-01` | Job은 월요일부터 금요일까지 `10:00`에 실행하며 공휴일에도 동작합니다. `executionDate`는 실행 이력의 멱등성 기준일이고 `previousDate`는 저축 예정 금액을 계산할 일별 잔액 기준일입니다. 토요일과 일요일에는 Job 자체를 시작하지 않습니다. |
+| `CS-01` | Job은 월요일부터 금요일까지 `10:00`에 공휴일과 무관하게 자동 실행하며 `/internal/v1/batches/coin-saving`에서 지정 날짜로 수동 실행할 수도 있습니다. 자동 스케줄은 주말에 시작하지 않지만 명시적인 수동 실행은 요일을 제한하지 않습니다. 두 진입점 모두 `BatchExecutionService`를 사용하고 `executionDate`를 실행 이력의 멱등성 기준일, `previousDate`를 저축 예정 금액의 잔액 기준일로 전달합니다. |
 | `CS-02` | `JdbcPagingItemReader`는 `coinbox_id` 오름차순으로 기본 1,000건씩 후보를 조회합니다. 설정 활성, 시작일, 동일 날짜 실행 이력 부재를 1차 조건으로 사용하고 연결 입출금계좌의 전일 `closing_balance`를 함께 읽습니다. 후보 조회에는 잠금을 걸지 않으며 결과는 최종 실행 보장이 아니라 처리 대상을 줄이는 스냅샷입니다. 별도 ItemProcessor는 사용하지 않습니다. |
 | `CS-03` | 각 후보는 독립 트랜잭션으로 처리합니다. 저금통과 연결 입출금계좌를 `account_id` 오름차순으로 잠근 뒤 `COINBOX`, 저금통의 `ACCOUNT_CONTRACT` 순서로 잠급니다. 잠금 후 두 계좌의 `ACTIVE` 상태, 연결 관계, 동전모으기 설정과 시작일 및 계약 상태를 다시 확인합니다. 후보 조회 이후 변경된 값은 잠금 후 값이 우선합니다. |
 | `CS-04` | 활성 계약의 `product_version_id`로 `PRODUCT_VERSION`과 `COINBOX_POLICY.max_amount`를 조회합니다. 참조된 버전과 정책은 업무 값이 변경되지 않으므로 별도 잠금을 걸지 않습니다. `COINBOX` 잠금을 잡은 상태에서 `(coinbox_id, executionDate)` 실행 이력을 재조회하고, 이미 존재하면 아무 금융 처리도 하지 않습니다. 복합 UK가 동시에 들어온 중복 저장을 최종 차단합니다. |

@@ -15,7 +15,8 @@ import com.kakaobank.coinbox.coinsavingexecution.entity.CoinSavingExecution;
 import com.kakaobank.coinbox.coinsavingexecution.entity.CoinSavingExecutionStatus;
 import com.kakaobank.coinbox.coinsavingexecution.batch.CoinSavingCandidate;
 import com.kakaobank.coinbox.coinsavingexecution.repository.CoinSavingExecutionRepository;
-import com.kakaobank.coinbox.common.batch.BatchScheduler;
+import com.kakaobank.coinbox.common.batch.service.BatchExecutionResult;
+import com.kakaobank.coinbox.common.batch.service.BatchExecutionService;
 import com.kakaobank.coinbox.customer.entity.Customer;
 import com.kakaobank.coinbox.customer.repository.CustomerRepository;
 import com.kakaobank.coinbox.financialtransaction.repository.FinancialTransactionRepository;
@@ -30,7 +31,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.batch.core.BatchStatus;
-import org.springframework.batch.core.job.JobExecution;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
@@ -64,7 +64,7 @@ class BatchLifecycleIntegrationTest {
     private static final LocalDate PREVIOUS_DATE = EXECUTION_DATE.minusDays(1);
 
     @Autowired
-    private BatchScheduler batchScheduler;
+    private BatchExecutionService batchExecutionService;
 
     @Autowired
     private CustomerRepository customerRepository;
@@ -148,14 +148,14 @@ class BatchLifecycleIntegrationTest {
         // given: 전일 잔돈이 850원이고 동전모으기 가능한 저금통이 있다.
 
         // when: 일별 잔액과 동전모으기를 실행한 뒤 두 Job을 같은 기준일로 다시 실행한다.
-        JobExecution firstDailyBalance = batchScheduler.launchDailyBalanceJob(EXECUTION_DATE);
-        JobExecution firstCoinSaving = batchScheduler.launchCoinSavingJob(EXECUTION_DATE);
-        JobExecution secondDailyBalance = batchScheduler.launchDailyBalanceJob(EXECUTION_DATE);
-        JobExecution secondCoinSaving = batchScheduler.launchCoinSavingJob(EXECUTION_DATE);
+        BatchExecutionResult firstDailyBalance = batchExecutionService.executeDailyBalance(EXECUTION_DATE);
+        BatchExecutionResult firstCoinSaving = batchExecutionService.executeCoinSaving(EXECUTION_DATE);
+        BatchExecutionResult secondDailyBalance = batchExecutionService.executeDailyBalance(EXECUTION_DATE);
+        BatchExecutionResult secondCoinSaving = batchExecutionService.executeCoinSaving(EXECUTION_DATE);
 
         // then: 모든 Job이 완료되고 최초 실행 데이터만 유지된다.
         assertThat(List.of(firstDailyBalance, firstCoinSaving, secondDailyBalance, secondCoinSaving))
-                .allSatisfy(execution -> assertThat(execution.getStatus()).isEqualTo(BatchStatus.COMPLETED));
+                .allSatisfy(execution -> assertThat(execution.status()).isEqualTo(BatchStatus.COMPLETED));
         assertThat(accountDailyBalanceRepository.findAll()).hasSize(2);
         AccountDailyBalance parentSnapshot = accountDailyBalanceRepository.findAll().stream()
                 .filter(balance -> balance.getAccountId().equals(10L))
@@ -229,24 +229,24 @@ class BatchLifecycleIntegrationTest {
         CountDownLatch ready = new CountDownLatch(2);
         CountDownLatch start = new CountDownLatch(1);
         try {
-            Future<JobExecution> first = executorService.submit(
+            Future<BatchExecutionResult> first = executorService.submit(
                     () -> launchDailyBalanceAfterSignal(ready, start)
             );
-            Future<JobExecution> second = executorService.submit(
+            Future<BatchExecutionResult> second = executorService.submit(
                     () -> launchDailyBalanceAfterSignal(ready, start)
             );
 
             assertThat(ready.await(5, TimeUnit.SECONDS)).isTrue();
             start.countDown();
 
-            List<JobExecution> executions = Arrays.asList(
+            List<BatchExecutionResult> executions = Arrays.asList(
                     first.get(20, TimeUnit.SECONDS),
                     second.get(20, TimeUnit.SECONDS)
             );
 
             // then: 두 Job 모두 교착 없이 완료된다.
             assertThat(executions)
-                    .allSatisfy(execution -> assertThat(execution.getStatus()).isEqualTo(BatchStatus.COMPLETED));
+                    .allSatisfy(execution -> assertThat(execution.status()).isEqualTo(BatchStatus.COMPLETED));
         } finally {
             start.countDown();
             executorService.shutdownNow();
@@ -305,13 +305,13 @@ class BatchLifecycleIntegrationTest {
         return coinSavingService.execute(candidate);
     }
 
-    private JobExecution launchDailyBalanceAfterSignal(
+    private BatchExecutionResult launchDailyBalanceAfterSignal(
             CountDownLatch ready,
             CountDownLatch start
     ) throws InterruptedException {
         ready.countDown();
         start.await();
-        return batchScheduler.launchDailyBalanceJob(EXECUTION_DATE);
+        return batchExecutionService.executeDailyBalance(EXECUTION_DATE);
     }
 
     private Account account(

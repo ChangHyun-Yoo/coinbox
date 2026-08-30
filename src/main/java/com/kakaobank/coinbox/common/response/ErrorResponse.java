@@ -16,7 +16,7 @@ public record ErrorResponse(
         String code,
         @Schema(description = "사용자에게 표시 가능한 한글 오류 메시지", example = "이미 이용 중인 저금통이 있습니다.")
         String message,
-        @Schema(description = "오류 응답 생성 일시", example = "2026-08-27T10:15:30", format = "date-time")
+        @Schema(description = "오류 응답 생성 일시", example = "2026-08-30T10:15:30", format = "date-time")
         LocalDateTime timestamp
 ) {
 

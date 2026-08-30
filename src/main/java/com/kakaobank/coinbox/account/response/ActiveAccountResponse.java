@@ -19,9 +19,9 @@ public record ActiveAccountResponse(
                 example = "DEMAND_DEPOSIT"
         )
         ProductType productType,
-        @Schema(description = "하이픈 없는 13자리 계좌번호", example = "3333011234567", pattern = "^[0-9]{13}$")
+        @Schema(description = "하이픈 없는 13자리 계좌번호", example = "3333000000001", pattern = "^[0-9]{13}$")
         String accountNumber,
-        @Schema(description = "현재 잔액(원)", example = "1234567", minimum = "0")
+        @Schema(description = "현재 잔액(원)", example = "253400", minimum = "0")
         Long balance,
         @Schema(description = "상품명", example = "입출금통장")
         String productName,

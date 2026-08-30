@@ -89,6 +89,31 @@ class AccountRepositoryTest {
     }
 
     @Test
+    @DisplayName("입출금계좌의 잔고만 지정 금액만큼 증가시킨다")
+    void increasesOnlyDemandDepositAccountBalance() {
+        // given: 입출금계좌와 저금통 계좌를 준비한다.
+        Account demandDeposit = Account.create(
+                14L, 1L, ProductType.DEMAND_DEPOSIT, "3333000000014", null, 100_000L,
+                LocalDate.of(2026, 8, 28)
+        );
+        Account coinBox = Account.create(
+                15L, 1L, ProductType.COINBOX, "3310000000015", 14L, 20_000L,
+                LocalDate.of(2026, 8, 28)
+        );
+        accountRepository.saveAllAndFlush(List.of(demandDeposit, coinBox));
+
+        // when: 같은 금액으로 두 계좌의 테스트 잔고 증가를 요청한다.
+        int demandDepositUpdated = accountRepository.increaseBalance("3333000000014", 10_000L);
+        int coinBoxUpdated = accountRepository.increaseBalance("3310000000015", 10_000L);
+
+        // then: 입출금계좌만 UPDATE되고 저금통 잔고는 변경되지 않는다.
+        assertThat(demandDepositUpdated).isOne();
+        assertThat(coinBoxUpdated).isZero();
+        assertThat(accountRepository.findById(14L).orElseThrow().getBalance()).isEqualTo(110_000L);
+        assertThat(accountRepository.findById(15L).orElseThrow().getBalance()).isEqualTo(20_000L);
+    }
+
+    @Test
     @DisplayName("이체 계좌를 ID 오름차순으로 비관적 잠금 조회한다")
     void locksTransferAccountsInAscendingIdOrder() {
         // given: ID 순서와 반대로 저장한 두 정상 계좌를 준비한다.

@@ -90,7 +90,11 @@ public class CoinBoxController {
                     name = "X-Customer-Id",
                     description = "인증·게이트웨이 계층이 검증 후 전달한 고객 ID",
                     required = true,
-                    example = "710000000000000001"
+                    schema = @Schema(
+                            type = "string",
+                            pattern = "^[1-9][0-9]*$",
+                            example = "700000000000000002"
+                    )
             )
             @RequestHeader("X-Customer-Id") @NotNull @Positive Long customerId
     ) {
@@ -145,7 +149,11 @@ public class CoinBoxController {
                     name = "X-Customer-Id",
                     description = "인증·게이트웨이 계층이 검증 후 전달한 고객 ID",
                     required = true,
-                    example = "710000000000000001"
+                    schema = @Schema(
+                            type = "string",
+                            pattern = "^[1-9][0-9]*$",
+                            example = "700000000000000003"
+                    )
             )
             @RequestHeader("X-Customer-Id") @NotNull @Positive Long customerId,
             @Valid @RequestBody OpenCoinBoxRequest request
@@ -198,13 +206,17 @@ public class CoinBoxController {
                     name = "X-Customer-Id",
                     description = "인증·게이트웨이 계층이 검증 후 전달한 고객 ID",
                     required = true,
-                    example = "710000000000000001"
+                    schema = @Schema(
+                            type = "string",
+                            pattern = "^[1-9][0-9]*$",
+                            example = "700000000000000001"
+                    )
             )
             @RequestHeader("X-Customer-Id") @NotNull @Positive Long customerId,
             @Parameter(
                     description = "하이픈 없는 13자리 저금통 계좌번호",
                     required = true,
-                    example = "3310000012345"
+                    example = "3310000000001"
             )
             @PathVariable @Pattern(regexp = "[0-9]{13}") String accountNumber
     ) {
@@ -252,13 +264,17 @@ public class CoinBoxController {
                     name = "X-Customer-Id",
                     description = "인증·게이트웨이 계층이 검증 후 전달한 고객 ID",
                     required = true,
-                    example = "710000000000000001"
+                    schema = @Schema(
+                            type = "string",
+                            pattern = "^[1-9][0-9]*$",
+                            example = "700000000000000004"
+                    )
             )
             @RequestHeader("X-Customer-Id") @NotNull @Positive Long customerId,
             @Parameter(
                     description = "하이픈 없는 13자리 저금통 계좌번호",
                     required = true,
-                    example = "3310000012345"
+                    example = "3310000000002"
             )
             @PathVariable @Pattern(regexp = "[0-9]{13}") String accountNumber
     ) {

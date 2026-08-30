@@ -397,8 +397,36 @@ classDiagram
 
     class BatchScheduler {
         <<Scheduler>>
-        +launchDailyBalanceJob(LocalDate executionDate) JobExecution
-        +launchCoinSavingJob(LocalDate executionDate) JobExecution
+        +launchDailyBalanceJob() void
+        +launchCoinSavingJob() void
+    }
+
+    class ManualBatchController {
+        <<Controller>>
+        +executeDailyBalance(LocalDate executionDate) ManualBatchExecutionResponse
+        +executeCoinSaving(LocalDate executionDate) ManualBatchExecutionResponse
+    }
+
+    class BatchExecutionService {
+        <<Service>>
+        +executeDailyBalance(LocalDate executionDate) BatchExecutionResult
+        +executeCoinSaving(LocalDate executionDate) BatchExecutionResult
+    }
+
+    class BatchExecutionResult {
+        <<ValueObject>>
+        +String jobExecutionId
+        +String jobName
+        +BatchStatus status
+        +LocalDate executionDate
+    }
+
+    class ManualBatchExecutionResponse {
+        <<Response>>
+        +String jobExecutionId
+        +String jobName
+        +BatchStatus status
+        +LocalDate executionDate
     }
 
     class DailyBalanceJobConfig {
@@ -538,8 +566,12 @@ classDiagram
         +nextId() Long
     }
 
-    BatchScheduler --> DailyBalanceJobConfig
-    BatchScheduler --> CoinSavingJobConfig
+    ManualBatchController --> BatchExecutionService
+    ManualBatchController ..> ManualBatchExecutionResponse
+    BatchScheduler --> BatchExecutionService
+    BatchExecutionService --> DailyBalanceJobConfig
+    BatchExecutionService --> CoinSavingJobConfig
+    BatchExecutionService ..> BatchExecutionResult
 
     DailyBalanceJobConfig --> DailyBalanceTasklet
     DailyBalanceTasklet --> DailyBalanceQueryRepository
@@ -571,7 +603,9 @@ classDiagram
 
 | 클래스 | 핵심 책임 | 관련 단계 |
 |---|---|---|
-| `BatchScheduler` | 실행 일정에 맞춰 날짜 파라미터와 함께 각 Job을 시작합니다. | `BAL-01`, `CS-01` |
+| `ManualBatchController` | 필수 `executionDate`를 검증하고 일별 잔액 또는 동전모으기 Job의 수동 실행 결과를 반환합니다. | `BAL-01`, `CS-01` |
+| `BatchScheduler` | 서울 시간 기준 실행 일정에 맞춰 현재 날짜를 공통 실행 서비스에 전달합니다. | `BAL-01`, `CS-01` |
+| `BatchExecutionService` | 자동·수동 호출에 같은 Job 파라미터를 구성하고 실행별 식별자·상태를 반환합니다. Job과 Step의 자체 트랜잭션을 방해하지 않도록 외부 업무 트랜잭션을 시작하지 않습니다. | `BAL-01`, `CS-01` |
 | `DailyBalanceJobConfig` | 일별 잔액 Job과 단일 Tasklet Step을 구성합니다. | `BAL-*` |
 | `DailyBalanceTasklet` | 기준일 계산 결과를 받아 대상 조회, Snowflake ID 생성과 일괄 저장을 조정합니다. | `BAL-02~05` |
 | `DailyBalanceQueryRepository` | JPA Native Query로 `ACTIVE`, `RESTRICTED` 계좌의 잔액을 잠금 없이 ID 순서로 조회합니다. | `BAL-02` |
@@ -588,6 +622,7 @@ classDiagram
 
 | 처리 | 트랜잭션 범위 |
 |---|---|
+| 자동·수동 Job 시작 | `BatchExecutionService`는 외부 트랜잭션 없이 Job을 시작하고 각 Job·Step이 자체 트랜잭션 경계를 관리합니다. |
 | 일별 최종 잔액 | Tasklet의 대상 조회부터 `ACCOUNT_DAILY_BALANCE` 일괄 저장까지 하나의 Step 트랜잭션 |
 | 동전모으기 후보 조회 | 비관적 잠금이 없는 페이징 조회. 후보를 확정하는 트랜잭션이 아닙니다. |
 | 동전모으기 후보 1건 | 청크 크기 1을 기준으로 계좌·설정·계약 잠금부터 `SUCCESS` 또는 `SKIPPED` 실행 이력 저장까지 독립 트랜잭션 |
@@ -620,8 +655,8 @@ classDiagram
 | `EMPTY-03~05` | `CoinBoxService` | `InternalTransferService` | 금융거래·원장 생성 및 두 계좌 잔액 변경 |
 | `TERM-01~03` | `CoinBoxController` | `CoinBoxService` | 해지 대상 잠금·검증 및 잔액 분기 |
 | `TERM-04~06` | `CoinBoxService` | `InternalTransferService`, `CoinBoxService` | 필요 시 잔액 이전 후 계좌·계약·설정 종료 |
-| `BAL-01~05` | `BatchScheduler` | `DailyBalanceTasklet`, `DailyBalanceQueryRepository`, `DailyBalanceJdbcRepository` | `ACCOUNT_DAILY_BALANCE` 생성 |
-| `CS-01~02` | `BatchScheduler` | `CoinSavingJobConfig`, `JdbcPagingItemReader` | 잠금 없는 후보 스트림 |
+| `BAL-01~05` | `BatchScheduler` 또는 `ManualBatchController` | `BatchExecutionService`, `DailyBalanceTasklet`, `DailyBalanceQueryRepository`, `DailyBalanceJdbcRepository` | `ACCOUNT_DAILY_BALANCE` 생성 |
+| `CS-01~02` | `BatchScheduler` 또는 `ManualBatchController` | `BatchExecutionService`, `CoinSavingJobConfig`, `JdbcPagingItemReader` | 잠금 없는 후보 스트림 |
 | `CS-03~08` | `CoinSavingItemWriter` | `CoinSavingService`, `CoinSavingAmountCalculator`, `InternalTransferService` | 성공 거래·원장·실행 이력 또는 건너뜀 실행 이력 |
 
 ---

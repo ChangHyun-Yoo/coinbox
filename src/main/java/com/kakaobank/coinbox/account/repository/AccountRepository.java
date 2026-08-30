@@ -2,6 +2,7 @@ package com.kakaobank.coinbox.account.repository;
 
 import com.kakaobank.coinbox.account.entity.Account;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -19,6 +20,32 @@ public interface AccountRepository extends JpaRepository<Account, Long> {
             where a.account_number = :accountNumber
             """, nativeQuery = true)
     long countByAccountNumber(@Param("accountNumber") String accountNumber);
+
+    /**
+     * 테스트 잔고 증가 후 변경된 계좌 정보를 확인할 때 사용한다.
+     */
+    @Query(value = """
+            select a.*
+            from account a
+            where a.account_number = :accountNumber
+            """, nativeQuery = true)
+    Optional<Account> findByAccountNumber(@Param("accountNumber") String accountNumber);
+
+    /**
+     * 로컬 테스트를 위해 금융거래와 원장을 생성하지 않고 지정 계좌의 잔고만 증가시킨다.
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query(value = """
+            update account a
+            set a.balance = a.balance + :amount,
+                a.updated_datetime = current_timestamp
+            where a.account_number = :accountNumber
+              and a.product_type = 'DEMAND_DEPOSIT'
+            """, nativeQuery = true)
+    int increaseBalance(
+            @Param("accountNumber") String accountNumber,
+            @Param("amount") Long amount
+    );
 
     /**
      * 이체에 참여하는 계좌를 ID 오름차순으로 잠가 반대 방향 이체 사이의 교착 가능성을 낮춘다.

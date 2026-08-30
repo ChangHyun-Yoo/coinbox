@@ -27,8 +27,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 class InitialDataIntegrationTest {
 
     private static final Long EXISTING_COINBOX_CUSTOMER_ID = 700000000000000001L;
-    private static final Long NEW_COINBOX_CUSTOMER_ID = 700000000000000002L;
+    private static final Long ELIGIBLE_ACCOUNT_CUSTOMER_ID = 700000000000000002L;
+    private static final Long OPEN_COINBOX_CUSTOMER_ID = 700000000000000003L;
+    private static final Long TERMINATE_COINBOX_CUSTOMER_ID = 700000000000000004L;
     private static final String COINBOX_ACCOUNT_NUMBER = "3310000000001";
+    private static final String TERMINATION_COINBOX_ACCOUNT_NUMBER = "3310000000002";
 
     @Autowired
     private CustomerRepository customerRepository;
@@ -58,9 +61,11 @@ class InitialDataIntegrationTest {
 
         // when: Spring SQL 초기화가 classpath의 data.sql을 실행한다.
 
-        // then: 기존 저금통 고객과 신규 가입 고객이 함께 준비된다.
+        // then: 각 Swagger 성공 예시에 사용할 고객이 서로 독립적으로 준비됩니다.
         assertThat(customerRepository.findById(EXISTING_COINBOX_CUSTOMER_ID)).isPresent();
-        assertThat(customerRepository.findById(NEW_COINBOX_CUSTOMER_ID)).isPresent();
+        assertThat(customerRepository.findById(ELIGIBLE_ACCOUNT_CUSTOMER_ID)).isPresent();
+        assertThat(customerRepository.findById(OPEN_COINBOX_CUSTOMER_ID)).isPresent();
+        assertThat(customerRepository.findById(TERMINATE_COINBOX_CUSTOMER_ID)).isPresent();
 
         // and: 비우기·해지용 ACTIVE 저금통과 연결 설정이 생성된다.
         var coinBoxAccount = accountRepository
@@ -68,9 +73,21 @@ class InitialDataIntegrationTest {
                 .orElseThrow();
         assertThat(coinBoxAccount.getProductType()).isEqualTo(ProductType.COINBOX);
         assertThat(coinBoxAccount.getAccountStatus()).isEqualTo(AccountStatus.ACTIVE);
-        assertThat(coinBoxRepository.findAll()).singleElement()
-                .returns(true, coinBox -> coinBox.isCoinSavingEnabled())
-                .returns(coinBoxAccount.getAccountId(), coinBox -> coinBox.getAccountId());
+        assertThat(coinBoxRepository.findAll()).anySatisfy(coinBox -> assertThat(coinBox)
+                .returns(true, setting -> setting.isCoinSavingEnabled())
+                .returns(coinBoxAccount.getAccountId(), setting -> setting.getAccountId()));
+
+        // and: 해지 예시가 비우기 예시의 상태를 소모하지 않도록 별도 저금통을 사용합니다.
+        var terminationCoinBoxAccount = accountRepository
+                .findByCustomerIdAndAccountNumber(
+                        TERMINATE_COINBOX_CUSTOMER_ID,
+                        TERMINATION_COINBOX_ACCOUNT_NUMBER
+                )
+                .orElseThrow();
+        assertThat(terminationCoinBoxAccount)
+                .returns(ProductType.COINBOX, account -> account.getProductType())
+                .returns(AccountStatus.ACTIVE, account -> account.getAccountStatus())
+                .returns(35_270L, account -> account.getBalance());
 
         // and: 개설 정책과 동전모으기의 전일 잔액이 준비된다.
         assertThat(productRepository.findByProductType(ProductType.COINBOX)).isPresent();

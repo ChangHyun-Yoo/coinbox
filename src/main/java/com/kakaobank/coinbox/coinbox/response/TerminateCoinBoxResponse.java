@@ -12,17 +12,17 @@ import java.time.LocalDate;
  */
 @Schema(description = "저금통 해지 결과")
 public record TerminateCoinBoxResponse(
-        @Schema(description = "해지된 저금통 계좌 ID", example = "710000000000000101")
+        @Schema(description = "해지된 저금통 계좌 ID", example = "710000000000000007")
         String accountId,
-        @Schema(description = "하이픈 없는 13자리 저금통 계좌번호", example = "3310000012345", pattern = "^3310[0-9]{9}$")
+        @Schema(description = "하이픈 없는 13자리 저금통 계좌번호", example = "3310000000002", pattern = "^3310[0-9]{9}$")
         String accountNumber,
         @Schema(description = "해지 후 계좌 상태", example = "CLOSED")
         AccountStatus accountStatus,
         @Schema(description = "해지 후 계약 상태", example = "TERMINATED")
         ContractStatus contractStatus,
-        @Schema(description = "해지 전 근거계좌로 이전한 잔액. 잔액이 없으면 0", example = "4360", minimum = "0")
+        @Schema(description = "해지 전 근거계좌로 이전한 잔액. 잔액이 없으면 0", example = "35270", minimum = "0")
         Long transferredAmount,
-        @Schema(description = "해지일", example = "2026-08-27", format = "date")
+        @Schema(description = "해지일", example = "2026-08-30", format = "date")
         LocalDate terminationDate
 ) {
 

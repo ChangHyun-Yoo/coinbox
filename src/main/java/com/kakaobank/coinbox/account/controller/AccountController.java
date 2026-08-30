@@ -72,7 +72,11 @@ public class AccountController {
                     name = "X-Customer-Id",
                     description = "인증·게이트웨이 계층이 검증 후 전달한 고객 ID",
                     required = true,
-                    example = "710000000000000001"
+                    schema = @Schema(
+                            type = "string",
+                            pattern = "^[1-9][0-9]*$",
+                            example = "700000000000000001"
+                    )
             )
             @RequestHeader("X-Customer-Id") @NotNull @Positive Long customerId
     ) {

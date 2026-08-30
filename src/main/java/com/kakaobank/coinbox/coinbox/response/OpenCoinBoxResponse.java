@@ -12,21 +12,21 @@ import java.time.LocalDate;
  */
 @Schema(description = "신규 개설된 저금통 계좌와 동전모으기 설정")
 public record OpenCoinBoxResponse(
-        @Schema(description = "신규 저금통 계좌 ID", example = "710000000000000101")
+        @Schema(description = "신규 생성되는 저금통 계좌 ID", example = "810000000000000001")
         String accountId,
-        @Schema(description = "하이픈 없는 13자리 저금통 계좌번호", example = "3310000012345", pattern = "^3310[0-9]{9}$")
+        @Schema(description = "신규 채번되는 하이픈 없는 13자리 저금통 계좌번호", example = "3310000000003", pattern = "^3310[0-9]{9}$")
         String accountNumber,
         @Schema(description = "현재 상품 유형", example = "COINBOX")
         ProductType productType,
         @Schema(description = "계좌 상태: ACTIVE(정상), RESTRICTED(거래 제한), CLOSED(해지)", example = "ACTIVE")
         AccountStatus accountStatus,
-        @Schema(description = "연결된 근거계좌 ID", example = "710000000000000001")
+        @Schema(description = "data.sql의 개설 전용 고객에게 연결된 근거계좌 ID", example = "710000000000000005")
         String parentAccountId,
         @Schema(description = "동전모으기 활성 여부. 신규 가입 시 true", example = "true")
         boolean coinSavingEnabled,
-        @Schema(description = "동전모으기 시작일", example = "2026-08-27", format = "date")
+        @Schema(description = "동전모으기 시작일", example = "2026-08-30", format = "date")
         LocalDate coinSavingStartDate,
-        @Schema(description = "저금통 계좌 개설일", example = "2026-08-27", format = "date")
+        @Schema(description = "저금통 계좌 개설일", example = "2026-08-30", format = "date")
         LocalDate accountOpenDate
 ) {
 
