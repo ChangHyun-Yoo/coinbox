@@ -82,6 +82,7 @@ class AccountNumberGeneratorTest {
     private static Stream<Arguments> accountNumberPrefixes() {
         return Stream.of(
                 Arguments.of(ProductType.DEMAND_DEPOSIT, "3333"),
+                Arguments.of(ProductType.BUSINESS_DEMAND_DEPOSIT, "3333"),
                 Arguments.of(ProductType.COINBOX, "3310"),
                 Arguments.of(ProductType.MEETING_ACCOUNT, "7979")
         );

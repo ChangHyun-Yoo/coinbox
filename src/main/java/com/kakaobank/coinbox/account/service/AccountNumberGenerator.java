@@ -59,7 +59,7 @@ public class AccountNumberGenerator {
         }
 
         return switch (productType) {
-            case DEMAND_DEPOSIT -> "3333";
+            case DEMAND_DEPOSIT, BUSINESS_DEMAND_DEPOSIT -> "3333";
             case COINBOX -> "3310";
             case MEETING_ACCOUNT -> "7979";
             case INSTALLMENT_SAVING, FIXED_DEPOSIT ->

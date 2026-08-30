@@ -105,7 +105,7 @@ sequenceDiagram
         else 기존 저금통이 없음
             Note over Service,DB: JOIN-02. 가입 가능한 근거계좌 조회
             Service->>DB: 가입 가능한 입출금계좌 조회
-            Note right of Service: product_type = DEMAND_DEPOSIT<br/>account_status = ACTIVE<br/>실명 개인계좌<br/>개인사업자통장 제외
+            Note right of Service: product_type = DEMAND_DEPOSIT<br/>account_status = ACTIVE<br/>개인사업자·모임통장 제외
             DB-->>Service: 가입 가능 계좌 목록
 
             alt 가입 가능 계좌 목록이 비어 있음
@@ -177,8 +177,8 @@ sequenceDiagram
 | 단계 | 상세 COMMENT |
 |---|---|
 | `JOIN-01` | 신청 단계는 화면에 가입 가능한 계좌를 표시하기 위한 읽기 전용 사전 조회입니다. 고객이 현재 이용 중인 `COINBOX` 계좌를 이미 가지고 있는지 먼저 확인합니다. `account_status = CLOSED`인 과거 저금통은 이용 중인 저금통으로 판단하지 않습니다. 이 단계의 결과는 개설 시점까지 유효하다고 보장할 수 없으므로 개설 판단의 최종 근거로 사용하지 않습니다. |
-| `JOIN-02` | 중복 가입이 아니라면 `product_type = DEMAND_DEPOSIT`, `account_status = ACTIVE`인 입출금계좌 중 저금통의 근거계좌가 될 수 있는 계좌를 반환합니다. 모임통장과 개인사업자통장은 제외합니다. 개인사업자통장 여부처럼 현재 ERD에 없는 가입 자격 정보는 계좌 가입 자격 조회 영역에서 제공되는 것으로 가정합니다. 조회 결과가 없으면 계좌 개설을 유도하는 업무 예외를 반환합니다. |
-| `JOIN-03` | 사용자가 계좌를 선택한 뒤 실제 개설은 하나의 트랜잭션에서 수행합니다. `CUSTOMER`를 먼저 잠그고 선택한 `ACCOUNT`를 다음으로 잠급니다. 고객 잠금은 같은 고객의 동시 개설 요청을 직렬화하고, 계좌 잠금은 선택 이후 계좌 상태가 바뀌는 경쟁을 막습니다. 잠금을 획득한 뒤 고객당 이용 중인 저금통 존재 여부, 계좌 소유 관계, 상품 유형, 계좌 상태와 가입 제한 조건을 모두 다시 확인합니다. |
+| `JOIN-02` | 중복 가입이 아니라면 `product_type = DEMAND_DEPOSIT`, `account_status = ACTIVE`, `parent_account_id is null`인 입출금계좌를 반환합니다. `MEETING_ACCOUNT`와 `BUSINESS_DEMAND_DEPOSIT`은 별도 상품 유형이므로 ACTIVE 상태여도 제외됩니다. 조회 결과가 없으면 계좌 개설을 유도하는 업무 예외를 반환합니다. |
+| `JOIN-03` | 사용자가 계좌를 선택한 뒤 실제 개설은 하나의 트랜잭션에서 수행합니다. `CUSTOMER`를 먼저 잠그고 선택한 `ACCOUNT`를 다음으로 잠급니다. 고객 잠금은 같은 고객의 동시 개설 요청을 직렬화하고, 계좌 잠금은 선택 이후 계좌 상태가 바뀌는 경쟁을 막습니다. 잠금을 획득한 뒤 고객당 이용 중인 저금통 존재 여부, 계좌 소유 관계, `DEMAND_DEPOSIT` 상품 유형, `ACTIVE` 상태와 최상위 계좌 여부를 모두 다시 확인합니다. 따라서 개인사업자통장을 선택 계좌로 직접 요청해도 개설할 수 없습니다. |
 | `JOIN-04` | `PRODUCT.product_type = COINBOX`인 상품에서 개설일이 `PRODUCT_VERSION`의 `[effective_from, effective_to)` 범위에 포함되는 버전을 찾습니다. 해당 버전에 `COINBOX_POLICY`가 있어야 개설할 수 있습니다. 여기서 확정한 `product_version_id`를 계약에 저장하므로 이후 정책 조회는 가입일을 다시 계산하지 않고 계약이 참조하는 버전을 사용합니다. |
 | `JOIN-05` | Snowflake로 저금통 계좌 ID, 계약 ID와 저금통 ID를 생성합니다. 계좌번호는 저금통 prefix `3310`과 9자리 난수를 조합한 13자리 후보로 만들고, 이미 사용 중이면 최대 100회까지 다시 생성합니다. 사전 중복 조회와 별개로 동시 요청의 경합은 `ACCOUNT.account_number` 유니크 제약이 최종 차단합니다. `ACCOUNT`에는 현재 운영 유형과 연결 입출금계좌를, `ACCOUNT_CONTRACT`에는 계약 당시의 상품 버전과 미종료일 `9999-12-31`을, `COINBOX`에는 고객별 동전모으기 설정을 저장합니다. 동전모으기는 개설 즉시 `true`로 설정하고 시작일은 개설 당일로 저장합니다. 세 행은 하나의 저금통을 서로 다른 책임으로 표현합니다. |
 | `JOIN-06` | `ACCOUNT`, `ACCOUNT_CONTRACT`, `COINBOX`가 모두 저장된 경우에만 트랜잭션을 Commit하고 성공 결과를 반환합니다. 어느 하나라도 실패하면 전체를 Rollback하여 계좌만 존재하거나 계약·설정이 누락된 불완전한 저금통이 남지 않도록 합니다. 응답의 계좌 식별자와 계좌번호는 Commit된 `ACCOUNT`를 기준으로 합니다. |

@@ -11,7 +11,8 @@ insert into product (
 ) values
     (730000000000000001, 'DEMAND_DEPOSIT', '입출금통장', current_timestamp, current_timestamp),
     (730000000000000002, 'COINBOX', '저금통', current_timestamp, current_timestamp),
-    (730000000000000003, 'MEETING_ACCOUNT', '모임통장', current_timestamp, current_timestamp);
+    (730000000000000003, 'MEETING_ACCOUNT', '모임통장', current_timestamp, current_timestamp),
+    (730000000000000004, 'BUSINESS_DEMAND_DEPOSIT', '개인사업자통장', current_timestamp, current_timestamp);
 
 -- 9999-12-31은 현재 적용 중인 상품 버전의 논리적인 미종료일이다.
 insert into product_version (
@@ -25,7 +26,8 @@ insert into product_version (
 ) values
     (731000000000000001, 730000000000000001, 1, '2026-01-01', '9999-12-31', current_timestamp, current_timestamp),
     (731000000000000002, 730000000000000002, 1, '2026-01-01', '9999-12-31', current_timestamp, current_timestamp),
-    (731000000000000003, 730000000000000003, 1, '2026-01-01', '9999-12-31', current_timestamp, current_timestamp);
+    (731000000000000003, 730000000000000003, 1, '2026-01-01', '9999-12-31', current_timestamp, current_timestamp),
+    (731000000000000004, 730000000000000004, 1, '2026-01-01', '9999-12-31', current_timestamp, current_timestamp);
 
 -- 저금통 V1은 최대 10만 원까지 보유할 수 있다.
 insert into coinbox_policy (
@@ -73,7 +75,8 @@ insert into account (
     (710000000000000004, 700000000000000002, 'DEMAND_DEPOSIT', '3333000000003', null, 125670, 'ACTIVE', '2026-03-04', current_timestamp, current_timestamp),
     (710000000000000005, 700000000000000003, 'DEMAND_DEPOSIT', '3333000000004', null, 186420, 'ACTIVE', '2026-04-05', current_timestamp, current_timestamp),
     (710000000000000006, 700000000000000004, 'DEMAND_DEPOSIT', '3333000000005', null, 410000, 'ACTIVE', '2026-05-06', current_timestamp, current_timestamp),
-    (710000000000000007, 700000000000000004, 'COINBOX', '3310000000002', 710000000000000006, 35270, 'ACTIVE', '2026-08-28', current_timestamp, current_timestamp);
+    (710000000000000007, 700000000000000004, 'COINBOX', '3310000000002', 710000000000000006, 35270, 'ACTIVE', '2026-08-28', current_timestamp, current_timestamp),
+    (710000000000000008, 700000000000000002, 'BUSINESS_DEMAND_DEPOSIT', '3333000000006', null, 500000, 'ACTIVE', '2026-06-07', current_timestamp, current_timestamp);
 
 -- 현재 계약은 9999-12-31까지 열어 두고 가입 당시의 상품 버전을 고정한다.
 insert into account_contract (
@@ -92,7 +95,8 @@ insert into account_contract (
     (720000000000000004, 710000000000000004, 731000000000000001, 'ACTIVE', '2026-03-04', '9999-12-31', current_timestamp, current_timestamp),
     (720000000000000005, 710000000000000005, 731000000000000001, 'ACTIVE', '2026-04-05', '9999-12-31', current_timestamp, current_timestamp),
     (720000000000000006, 710000000000000006, 731000000000000001, 'ACTIVE', '2026-05-06', '9999-12-31', current_timestamp, current_timestamp),
-    (720000000000000007, 710000000000000007, 731000000000000002, 'ACTIVE', '2026-08-28', '9999-12-31', current_timestamp, current_timestamp);
+    (720000000000000007, 710000000000000007, 731000000000000002, 'ACTIVE', '2026-08-28', '9999-12-31', current_timestamp, current_timestamp),
+    (720000000000000008, 710000000000000008, 731000000000000004, 'ACTIVE', '2026-06-07', '9999-12-31', current_timestamp, current_timestamp);
 
 -- 1번 저금통은 비우기·배치용이고 4번 고객의 저금통은 해지 전용으로 분리한다.
 insert into coinbox (

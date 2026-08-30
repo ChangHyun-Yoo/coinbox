@@ -39,7 +39,10 @@ class SwaggerExampleIntegrationTest {
                 .andExpect(status().isOk());
         mockMvc.perform(get("/api/v1/coinboxes/eligible-accounts")
                         .header("X-Customer-Id", "700000000000000002"))
-                .andExpect(status().isOk());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.accounts.length()").value(1))
+                .andExpect(jsonPath("$.accounts[0].productType").value("DEMAND_DEPOSIT"))
+                .andExpect(jsonPath("$.accounts[0].accountNumber").value("3333000000003"));
 
         // and: 개설 전용 고객은 다른 조회 예시를 소모하지 않고 REST 생성 성공 상태를 반환합니다.
         mockMvc.perform(post("/api/v1/coinboxes")

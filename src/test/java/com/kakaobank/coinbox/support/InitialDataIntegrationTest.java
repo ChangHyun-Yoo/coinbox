@@ -91,6 +91,11 @@ class InitialDataIntegrationTest {
 
         // and: 개설 정책과 동전모으기의 전일 잔액이 준비된다.
         assertThat(productRepository.findByProductType(ProductType.COINBOX)).isPresent();
+        assertThat(productRepository.findByProductType(ProductType.BUSINESS_DEMAND_DEPOSIT)).isPresent();
+        assertThat(accountRepository.findEligibleDemandDepositAccounts(ELIGIBLE_ACCOUNT_CUSTOMER_ID))
+                .singleElement()
+                .returns(ProductType.DEMAND_DEPOSIT, account -> account.getProductType())
+                .returns("3333000000003", account -> account.getAccountNumber());
         assertThat(coinBoxPolicyRepository.findAll()).singleElement()
                 .returns(100_000L, policy -> policy.getMaxAmount());
         assertThat(accountDailyBalanceRepository.findAll()).singleElement()

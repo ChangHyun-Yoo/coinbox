@@ -14,7 +14,8 @@ public record ActiveAccountResponse(
         @Schema(description = "Snowflake 계좌 ID", example = "710000000000000001")
         String accountId,
         @Schema(
-                description = "현재 상품 유형: DEMAND_DEPOSIT(입출금통장), COINBOX(저금통), "
+                description = "현재 상품 유형: DEMAND_DEPOSIT(입출금통장), "
+                        + "BUSINESS_DEMAND_DEPOSIT(개인사업자통장), COINBOX(저금통), "
                         + "MEETING_ACCOUNT(모임통장), INSTALLMENT_SAVING(적금), FIXED_DEPOSIT(정기예금)",
                 example = "DEMAND_DEPOSIT"
         )

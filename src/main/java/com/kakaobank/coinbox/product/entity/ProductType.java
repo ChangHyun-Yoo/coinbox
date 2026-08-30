@@ -10,6 +10,7 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public enum ProductType {
     DEMAND_DEPOSIT("입출금통장"),
+    BUSINESS_DEMAND_DEPOSIT("개인사업자통장"),
     COINBOX("저금통"),
     MEETING_ACCOUNT("모임통장"),
     INSTALLMENT_SAVING("적금"),

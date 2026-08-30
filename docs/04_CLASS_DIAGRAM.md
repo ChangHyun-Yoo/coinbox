@@ -611,7 +611,7 @@ classDiagram
 | `InternalTransferService` | 계좌 ID 오름차순 잠금, 계좌 상태와 잔액 검증, 금융거래·원장·잔액의 원자적 반영을 담당합니다. | `EMPTY-03~05`, `TERM-04`, `CS-06` |
 | `TransferLedgerSpec` | 동일한 이체 로직에서 비우기·동전모으기·해지의 원장 코드와 통장 적요를 다르게 전달합니다. | 비우기, 동전모으기, 해지 |
 | `CustomerRepository` | 고객 잠금으로 동일 고객의 가입·해지 경쟁을 직렬화합니다. | `JOIN-03`, `TERM-01` |
-| `AccountRepository` | 가입 가능 계좌 조회, 고객 소유 계좌 조회와 계좌 ID 오름차순 잠금 조회를 담당합니다. | 모든 온라인 프로세스 |
+| `AccountRepository` | `DEMAND_DEPOSIT`만을 대상으로 하는 가입 가능 계좌 조회, 고객 소유 계좌 조회와 계좌 ID 오름차순 잠금 조회를 담당합니다. | 모든 온라인 프로세스 |
 | `CoinBoxPolicyQueryRepository` | JPA Native Query로 `PRODUCT`, `PRODUCT_VERSION`, `COINBOX_POLICY`를 조인하고 읽기 모델로 반환하여 Service의 조인 세부사항을 숨깁니다. | `JOIN-04`, `CS-04` |
 | `AccountContractRepository` | 계약 생성 및 해지 시 활성 계약 잠금·종료를 담당합니다. | `JOIN-05`, `TERM-02·05` |
 | `CoinBoxRepository` | 저금통 설정 생성 및 동전모으기 설정 잠금·종료를 담당합니다. | `JOIN-05`, `TERM-02·05` |
