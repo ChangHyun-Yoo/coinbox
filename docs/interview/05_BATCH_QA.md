@@ -18,7 +18,15 @@ spring.batch.job.enabled=false는 애플리케이션 시작 시 Job 자동 실�
 
 일별 잔액은 대상 조회와 일괄 저장이라는 단순 작업이라 Tasklet으로 구성했습니다. 동전모으기는 후보별 검증·자금 이동·결과 기록이 필요해 Reader와 Writer를 사용하는 Chunk Step으로 구성했습니다.
 
-Tasklet이 반드시 트랜잭션이 없거나 모든 Tasklet이 대용량 처리에 유리한 것은 아닙니다. 현재 잔액 Tasklet은 대상 전체를 메모리에 적재하고 하나의 Step 작업으로 저장합니다.
+| 판단 기준 | 일별 잔액: Tasklet | 동전모으기: Chunk |
+|---|---|---|
+| 작업 형태 | 조회한 잔액에 ID·기준일·감사 시각을 붙여 일괄 저장합니다. | 저금통마다 현재 상태를 검증하고 이체 또는 건너뜀을 결정합니다. |
+| 현재 커밋 경계 | 한 번의 execute 호출에서 전체 대상 저장을 처리합니다. | 청크 크기 1로 한 저금통의 금융 변경과 실행 결과를 확정합니다. |
+| 선택한 비용 | 구성이 단순하지만 전체 메모리 적재와 긴 트랜잭션을 고려해야 합니다. | 조회와 커밋 단위를 나눌 수 있지만 설정과 건별 커밋 비용이 생깁니다. |
+
+반대로 구현할 수도 있습니다. 잔액을 Chunk로 나누면 메모리·롤백 범위를 줄이는 대신 부분 완료와 기준 시점을 관리해야 합니다. 동전모으기를 Tasklet 반복문으로 만들면 건별 트랜잭션과 진행 관리를 직접 구성해야 합니다. 데이터 규모와 실패 단위가 바뀌면 다시 비교하겠습니다.
+
+Tasklet은 execute 호출별로 트랜잭션을 사용할 수 있으며, 모든 Tasklet이 전체 데이터를 한 번에 처리하는 것은 아닙니다. 전체 적재는 현재 DailyBalanceTasklet의 구현 선택입니다. [Spring Batch TaskletStep](https://docs.spring.io/spring-batch/reference/step/tasklet.html)
 
 ## 5.4 B04. JdbcTemplate과 Spring Batch는 대체 관계입니까?
 
@@ -26,11 +34,19 @@ Tasklet이 반드시 트랜잭션이 없거나 모든 Tasklet이 대용량 처�
 
 Spring Batch의 실행 관리와 JdbcTemplate의 SQL 실행을 함께 사용한 구조입니다. 두 도구의 책임을 구분해서 설명합니다.
 
+**왜 잔액 저장은 JPA saveAll이 아니라 JDBC입니까?**
+
+조회한 값으로 새 스냅샷 행을 만들고 중복이면 기존 행을 유지하는 SQL을 직접 표현하기 위해서입니다. 저장 대상마다 관리 엔티티를 구성할 필요가 없고, 동일한 INSERT를 batchUpdate로 제출할 수 있습니다. 대신 ID와 감사 시각을 직접 채워야 하며 MySQL 문법에 의존합니다. 더 빠르다는 실측 결과까지 있는 것은 아닙니다.
+
+INSERT SELECT도 DB 안에서 처리할 수 있는 대안입니다. 현재처럼 Java에서 Snowflake ID와 공통 감사 시각을 생성하는 책임을 어디로 옮길지 함께 설계해야 합니다. Tasklet이라는 이유로 INSERT SELECT를 사용한 것은 아닙니다.
+
 ## 5.5 B05. Reader·Processor·Writer는 각각 무엇을 합니까?
 
 Reader는 처리 후보와 전일 잔액을 조회합니다. 현재 Processor는 구성하지 않았습니다. Writer가 CoinSavingService를 호출하며, 서비스가 잠금·재검증·금액 계산·이체·실행 이력 저장을 수행합니다.
 
 Processor는 선택 사항입니다. 계산기를 별도 클래스로 분리한 것과 Batch ItemProcessor를 등록한 것은 다릅니다. [Spring Batch 청크 처리](https://docs.spring.io/spring-batch/reference/step/chunk-oriented-processing.html)
+
+별도의 순수 변환 단계가 필요한 흐름이 아니고, 현재 상태에 따른 판단과 금융 반영을 한 서비스 호출로 모으려는 구성입니다. Processor에서 DB 조회가 기술적으로 불가능해서 제외한 것은 아닙니다. 필요하다면 부작용 없는 변환을 Processor로 분리할 수 있지만, 현재 구조에서는 역할만 늘리는 이점이 크지 않습니다.
 
 ## 5.6 B06. 재검증할 것인데 후보 조회는 왜 필요합니까?
 
